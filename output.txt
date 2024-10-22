@@ -1,0 +1,2 @@
+Starting simulation at 10:02:26
+Finished simulation at 18:40:26
