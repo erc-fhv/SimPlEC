@@ -26,7 +26,7 @@ class LocalWeather():
         return np.array([])
     
 
-    def step(self, time, prev_states, inputs):
+    def step(self, time):
         return np.array([]), np.hstack([self._weather_df.loc[time, ['temp_air', 'dni', 'dhi', 'ghi']].values, pvlib.solarposition.get_solarposition(time, self.latitude, self.longitude).loc[time, ['apparent_zenith', 'azimuth']].values])
         
 

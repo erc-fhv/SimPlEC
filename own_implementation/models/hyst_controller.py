@@ -1,34 +1,30 @@
 import numpy as np
 
 class HystController():
-    def __init__(self, name, delta_t=60, hyst=4, T_set=21) -> None:
+    def __init__(self, name, delta_t=60, hyst=4, T_set=21, state_0='off') -> None:
         # Parameter
         self.delta_t = delta_t
 
         self.T_set = T_set 
         self.hyst = hyst
 
+        self.state = state_0
+
         self.inputs  = ['T_is']
-        self.states  = ['on']
         self.outputs = ['on']
 
         self.name = name
 
-    
-    def init(self):
-        return np.array([0])
-           
-
-    def step(self, time, prev_states, inputs):
-        T_is = inputs[0]
+    def step(self, time, T_is):
         if T_is - self.T_set > self.hyst/2:
-            on = 0
+            self.state = 'off'
         elif T_is - self.T_set < self.hyst/2:
-            on = 1
+            self.state = 'on'
         else:
-            on = prev_states[0]
+            pass
+            # self.state = self.state
         
         # on = 0
         #     states, outputs
-        return np.array([on]), np.array([on])
+        return {'state': self.state}
         
