@@ -11,23 +11,18 @@ class HeatPump():
         # internal Parameter
         self._cop_fun = lambda Tsource, Tsink, eta: (Tsink+273.15)/((Tsink+273.15) - (Tsource+273.15)) * eta
         
-        self.inputs  = ['on', 'T_source', 'T_sink']
-        self.states  = []
+        # inputs outputs 
+        self.inputs  = ['state', 'T_source', 'T_sink']
         self.outputs = ['cop', 'P_el', 'dot_Q_hp']
-
         self.name = name
 
-    
-    def init(self):
-        return np.array([])
-    
-
-    def step(self, time, prev_states, inputs):
-
-        P_el = self.P_el_nom*inputs[0]
-        cop = self._cop_fun(inputs[1], inputs[2], self.eta)
+    def step(self, time, state, T_source, T_sink):
+        if state == 'on':
+            P_el = self.P_el_nom
+        else:
+            P_el = 0
+        cop = self._cop_fun(T_source, T_sink, self.eta)
         dot_Q_hp = P_el * cop
 
-        #     states, outputs
-        return np.array([]), np.array([cop, P_el, dot_Q_hp])
+        return {'cop':cop, 'P_el':P_el, 'dot_Q_hp':dot_Q_hp}
         
