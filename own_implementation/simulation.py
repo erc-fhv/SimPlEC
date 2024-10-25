@@ -6,6 +6,7 @@ The models need to follow the following structure:
 class ExampleModel():
     inputs = ['value_in']
     outputs = ['value_out']
+    delta_t = 60 # s
 
     def __init__(self, name):
         self.name = name
@@ -21,6 +22,7 @@ Every model instance needs
  - to have a unique name
  - to implement the inputs list, specifying the inputs of the step function as strings
  - to implement the outputs list, specifying the outputs of the step function as strings
+ - to implement the delta_t attribute (in seconds)
  - to implement a step function 
     - the step function needs to accept an argument time and all arguments specified in \'inputs\'
     - the step function needs to return a dict with the outputs as keys
@@ -37,10 +39,13 @@ sim.add_model(model1, watch_values=['value_in'])
 sim.add_model(model2, watch_values=['value_out'])
 
 sim.connect(model1, model2, ('value_out', 'value_in'))
+sim.connect(model2, model1, ('value_out', 'value_in'), time_shifted=True, init_values={'value_out': 1})
 
 times = pd.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
 sim.run(times)
+
+outputs of the simulation can then be retrieved by accessing sim.df
 '''
 
 import numpy as np
@@ -62,20 +67,25 @@ class SimulationError(Exception):
     pass
 
 class Simulation():
-    def __init__(self, log_to_file=True, log_file_path='simulation.log') -> None:
+    def __init__(self, output_to_file=False, output_data_path='output_data.pkl', log_to_file=False, log_file_path='simulation.log') -> None:
         '''Creates a simulation object
         
         Attributes:
+        output_data_path:str -- path for the output pandas.DataFrame to be saved
         log_to_file:Bool -- log the simulation output to a log file
         log_file_path:str -- file for the logging output
         '''
+        self.output_to_file = output_to_file
+        self.output_data_path = output_data_path
+        
         self._model_names = []  # initialize lists with model_names, state_name and output_names. those get filled in add_model and is used to check for duplicate names
         self._outputs = {}  # this dict contains all the output values of the models, the models will collect their inputs from this output
         self._G = nx.DiGraph()  # initialize execution graph (the graph is needed to calculate the model execution order)
         
-        # set up a logger 
-        self._log_file_name = log_file_path
-        logging.basicConfig(filename=self._log_file_name, encoding='utf-8', format='%(asctime)s %(levelname)-8s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
+        # set up a logger
+        if log_to_file:
+            self._log_file_name = log_file_path
+            logging.basicConfig(filename=self._log_file_name, encoding='utf-8', format='%(asctime)s %(levelname)-8s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
         self.log = logging.getLogger(__name__)
         self.log.disabled = not log_to_file
         logging_redirect_tqdm(self.log)
@@ -83,7 +93,7 @@ class Simulation():
         # setup the data logging capabilities
         self.dataframe_index_structure = []
 
-    def _check_model_validity(self, model):
+    def _validate_model(self, model):
         '''Check if model fulfilles the requirements for the simulation'''
         if not hasattr(model, 'name'): raise AttributeError(f'Model of type \'{type(model)}\' has no attribute name, which is required for the simulation')
         if not hasattr(model, 'inputs'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'inputs\', which is required for the simulation')
@@ -116,7 +126,7 @@ class Simulation():
 
         watch_values -- adds a models input or output to the reccorded values (pandas.DataFrame). Only watch numeric values that can safely be cast into a pandas DataFrame 
         '''
-        self._check_model_validity(model)
+        self._validate_model(model)
 
         # check for dupicate models
         if model.name in self._model_names: raise SimulationError(f'Model.name \'{model.name}\' not unique, which is required for the simulation to work')
@@ -158,7 +168,7 @@ class Simulation():
         model2 -- model of which the input is provided
         *connections:str or tuple -- str 'atr' or tuple (attr_o, attr_i) specifying input and output attribute of the models that need to be connected.
         time_shifted:bool -- To prevent computational loops, time_shifted connections take the input provided at the last step
-        init_values:dict -- Time shifted connections need an initial value to functiion
+        init_values:dict -- Time shifted connections need an initial value for the outputs of model1 to function in the first step
         '''
         for connection in connections:
             if type(connection) == str: # Input and output have the same 'name', only a string can be passed
@@ -166,11 +176,13 @@ class Simulation():
             attribute_out, attribute_in = connection
 
             if attribute_in in model2._sim_input_map:
-                raise ValueError(f'Trying to set multiple inputs for {model2.name} {attribute_in}')
+                raise SimulationError(f'Trying to set multiple inputs for {model2.name} {attribute_in}')
             else:
                 model2._sim_input_map.update({attribute_in: attribute_out})
             
             if time_shifted: # initialize time shifted connection (start value)
+                if not init_values or not attribute_out in init_values: 
+                    raise ValueError(f'Time shifted connection requires init_value for \'{attribute_out}\' e.g.: {{\'{attribute_out}\': value}}')
                 self._outputs.update({attribute_out: init_values[attribute_out]})
 
             self._G.add_edge(model1, model2, name=connection, time_shifted=time_shifted)
@@ -267,7 +279,9 @@ class Simulation():
             self.log.error(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'', exc_info=e)
             raise SimulationError(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'') from e
         finally:
-            self.df.to_pickle('output_data.pkl')
+            if self.output_to_file and not self.df.empty:
+                self.log.info(f'Saving output to {self.output_data_path}!') 
+                self.df.to_pickle(self.output_data_path)
             self.log.info(f'Simulation completed successfully!') 
 
     def draw_exec_graph(self):
