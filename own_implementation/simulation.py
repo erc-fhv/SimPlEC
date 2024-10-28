@@ -28,7 +28,10 @@ Every model instance needs
     - the step function needs to return a dict with the outputs as keys
 
 
-The simulation can then be run following this simple example:
+The simulation can then be run following this simple example (utilizing the example model from above):
+
+from simulation import Simulation
+import pandas
 
 sim = Simulation()
 
@@ -41,7 +44,7 @@ sim.add_model(model2, watch_values=['value_out'])
 sim.connect(model1, model2, ('value_out', 'value_in'))
 sim.connect(model2, model1, ('value_out', 'value_in'), time_shifted=True, init_values={'value_out': 1})
 
-times = pd.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
+times = pandas.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
 sim.run(times)
 
@@ -52,9 +55,7 @@ import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 import pandas as pd
-from datetime import datetime
 from copy import copy
-import time
 import logging
 import tqdm 
 from tqdm.contrib.logging import logging_redirect_tqdm
@@ -96,6 +97,7 @@ class Simulation():
     def _validate_model(self, model):
         '''Check if model fulfilles the requirements for the simulation'''
         if not hasattr(model, 'name'): raise AttributeError(f'Model of type \'{type(model)}\' has no attribute name, which is required for the simulation')
+        if not hasattr(model, 'delta_t'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'delta_t\', which is required for the simulation')
         if not hasattr(model, 'inputs'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'inputs\', which is required for the simulation')
         if not type(model.inputs) == list: raise AttributeError(f'Model \'{model.name}\' \'inputs\' need to be a list of strings for the simulation to work')
         if not hasattr(model, 'outputs'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'outputs\', which is required for the simulation')
@@ -222,7 +224,7 @@ class Simulation():
         Arguments:
         datetimes -- pd.DatetimeIndex specifying the simulation interval and steps.
         '''
-        self.log.info('Preparing Simulation...')
+        self.log.info('Preparing simulation...')
         sorted_model_execution_list  = self.compute_execution_order_from_graph(self._G)
 
         for m in sorted_model_execution_list: self._check_if_model_inputs_connected(m)
@@ -286,7 +288,7 @@ class Simulation():
 
     def draw_exec_graph(self):
         plt.figure()
-        pos=nx.spring_layout(self.G)
+        pos=nx.spring_layout(self._G)
 
         node_labels = {m:m.name for m in self._G.nodes} # get the model names for the edges
         edges = self._G.edges(data=True)  # get all edges to assign the color (safer that way)
