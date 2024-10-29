@@ -36,7 +36,7 @@ class BuildingModel():
         self._B = np.array([[UA1/C1,      1/C1,      1/C1],
                            [UA2/C2,         0,         0]])
 
-        self.discretize()
+        self._discretize()
 
         self.prev_states = np.array([T_o_0, T_u_0])
 
@@ -46,12 +46,13 @@ class BuildingModel():
 
         self.name = name
 
-    def discretize(self):
-        # Discretize System
-        # https://en.wikipedia.org/wiki/Discretization#Discretization_of_linear_state_space_models
+    def _discretize(self):
+        '''Discretize System
+        
+        https://en.wikipedia.org/wiki/Discretization#Discretization_of_linear_state_space_models
 
-        # exponent =  [[A, B],
-        #              [0, 0]] * delta_t
+        exponent =  [[A, B],
+                     [0, 0]] * delta_t'''
         exponent = np.vstack((np.hstack((self._A, self._B)), np.zeros((self._B.shape[1], self._A.shape[1]+self._B.shape[1]))))*self.delta_t
 
         res = expm(exponent)

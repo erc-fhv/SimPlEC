@@ -68,14 +68,17 @@ class SimulationError(Exception):
     pass
 
 class Simulation():
-    def __init__(self, output_to_file=False, output_data_path='output_data.pkl', log_to_file=False, log_file_path='simulation.log') -> None:
-        '''Creates a simulation object
-        
-        Attributes:
-        output_data_path:str -- path for the output pandas.DataFrame to be saved
-        log_to_file:Bool -- log the simulation output to a log file
-        log_file_path:str -- file for the logging output
+    def __init__(self, output_to_file=False, output_data_path='output_data.pkl', log_to_file=False, log_file_path='simulation.log', **kwargs) -> None:
         '''
+        Creates a simulation object
+        
+        Parameters
+        ----------
+        output_data_path : str path for the output pandas.DataFrame to be saved
+        log_to_file : Bool log the simulation output to a log file
+        log_file_path : str file for the logging output
+        '''
+
         self.output_to_file = output_to_file
         self.output_data_path = output_data_path
         
@@ -94,10 +97,12 @@ class Simulation():
         # setup the data logging capabilities
         self.dataframe_index_structure = []
 
+        self.time_resolution = kwargs.pop('time_resolution', 'sec') # get time_resolution (of the models) form kwargs, default: seconds
+
     def _validate_model(self, model):
         '''Check if model fulfilles the requirements for the simulation'''
         if not hasattr(model, 'name'): raise AttributeError(f'Model of type \'{type(model)}\' has no attribute name, which is required for the simulation')
-        if not hasattr(model, 'delta_t'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'delta_t\', which is required for the simulation')
+        # if not hasattr(model, 'delta_t'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'delta_t\', which is required for the simulation')
         if not hasattr(model, 'inputs'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'inputs\', which is required for the simulation')
         if not type(model.inputs) == list: raise AttributeError(f'Model \'{model.name}\' \'inputs\' need to be a list of strings for the simulation to work')
         if not hasattr(model, 'outputs'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'outputs\', which is required for the simulation')
@@ -111,22 +116,23 @@ class Simulation():
     def add_model(self, model, watch_values=[]):
         '''Adds a model to the simulation.
 
-        Arguments:
-        model -- User defined models need to follow the following example:  
-            class ExampleModel():
-                inputs = ['value_in']
-                outputs = ['value_out']
+        Parameters
+        ----------
+        model : User defined models need to follow the following example:  
+        """
+        class ExampleModel():
+            inputs = ['value_in']
+            outputs = ['value_out']
 
-                def __init__(self, name):
-                    self.name = name
-                    # init parameters here
+            def __init__(self, name):
+                self.name = name
 
-                def step(self, time, value_in) -> dict:
-                    # model logic here
-                    value_out = value_in + 1
-                    return {'value_out': value_out}
+            def step(self, time, value_in) -> dict:
+                value_out = value_in + 1
+                return {'value_out': value_out}
+        """
 
-        watch_values -- adds a models input or output to the reccorded values (pandas.DataFrame). Only watch numeric values that can safely be cast into a pandas DataFrame 
+        watch_values : adds a models input or output to the reccorded values (pandas.DataFrame). Only watch numeric values that can safely be cast into a pandas DataFrame 
         '''
         self._validate_model(model)
 
@@ -141,6 +147,8 @@ class Simulation():
         
         # Add extra attributes to the model
         model._sim_input_map =  {}  # input_map maps a models input to the simulation outputs dict {attribute_in: attribute_out}, gets filled in 'connect'
+        model._sim_next_exec_time = pd.to_datetime('1970-01-01 00:00:00+01:00') # make sure all models are stepped in the first timestep
+        model._sim_timedelta_t =  pd.Timedelta(model.delta_t, self.time_resolution)
         self._add_watch_values_to_model(model, watch_values)
 
     def _add_watch_values_to_model(self, model, watch_values):
@@ -229,24 +237,16 @@ class Simulation():
 
         for m in sorted_model_execution_list: self._check_if_model_inputs_connected(m)
 
-        self.log.info('Running simulation')
-        delta_index  = datetimes.freq.delta.seconds
-        n_steps = len(datetimes)
-
         # date collection should be moved to its own place but remains here now for debugging purposes
         # np. arrays should be used, as they are several times faster. (cast to df after simulation)
         # considder chunk processing for scale up
-        # find nice solution for different deltas
+        # find nice solution for different time resolutions to avoid sparsity
         # data_array = np.full((len(datetimes), len(self.output_names)), np.nan, dtype=float) # somehow does not work
         self.df = pd.DataFrame(columns=pd.MultiIndex.from_tuples(self.dataframe_index_structure, names=['model', 'i/o', 'attribute']))
-
-        # setup lists to perform check, which model needs to be steped
-        deltas = [pd.Timedelta(m.delta_t, 'sec') for m in sorted_model_execution_list]
-        prev_time = [pd.to_datetime('1990-01-01 00:00:00+01:00') for _ in sorted_model_execution_list]
-
-        if not all([d.seconds%delta_index == 0 for d in deltas]):
-            raise ValueError('At least one model has a time resolution (delta), that is not a multiple of the frequency of the datetimes provided')
         
+        # logging and status updates
+        self.log.info('Running simulation')
+        n_steps = len(datetimes)
         five_percent = int(n_steps/20)
 
         try:
@@ -257,26 +257,27 @@ class Simulation():
                 # write progress to logger (when running in background)
                 if s % five_percent == 0: self.log.info(f'Progress: {int(s/five_percent*5): 3}%')
 
-                # determine which models need to be steped in this time step (order remains the same)
-                step_models = [[i, m] for i, [m, p, d] in enumerate(zip(sorted_model_execution_list, prev_time, deltas)) if time-p >= d]
-                
                 # step models
-                for i, model in step_models:
-                    # save current time as last execution time of model 
-                    prev_time[i] = time
-                    
-                    # get inputs of the model from outputs of the simulation
-                    model_inputs = {input_key: self._outputs[output_key] for input_key, output_key in model._sim_input_map.items()}                   
-                    # calculate next model step
-                    model_outputs = copy(model.step(time, **model_inputs)) # copy for safety
-                    self._outputs.update(model_outputs) # write model outputs to the ouput dict!!
+                for model in sorted_model_execution_list:
+                    # determine if the model needs to be steped in this time step
+                    if time >= model._sim_next_exec_time:
+                        # get inputs of the model from outputs of the simulation
+                        model_inputs = {input_key: self._outputs[output_key] for input_key, output_key in model._sim_input_map.items()}                   
+                        
+                        # calculate next model step
+                        model_outputs = copy(model.step(time, **model_inputs)) # copy for safety
 
-                    # logg data
-                    if model._sim_watch_inputs:  # if inputs to watch
-                        self.df.loc[time, (model.name, 'inputs', slice(None))] = [model_inputs[wi] for wi in model._sim_watch_inputs]
-                    if model._sim_watch_outputs: # if outputs to watch
-                        self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in model._sim_watch_outputs]
-                
+                        # get (and remove) next model execution time. If model is event based ('next_exec_time' in  model_outputs) use this value, else use delta_t
+                        model._sim_next_exec_time = model_outputs.pop('next_exec_time', model._sim_timedelta_t + time)
+
+                        self._outputs.update(model_outputs, ) # write model outputs to the ouput dict!!
+
+                        # logg data
+                        if model._sim_watch_inputs:  # if inputs to watch
+                            self.df.loc[time, (model.name, 'inputs', slice(None))] = [model_inputs[wi] for wi in model._sim_watch_inputs]
+                        if model._sim_watch_outputs: # if outputs to watch
+                            self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in model._sim_watch_outputs]
+                    
         except Exception as e:
             self.log.error(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'', exc_info=e)
             raise SimulationError(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'') from e
