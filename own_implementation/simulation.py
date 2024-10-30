@@ -141,17 +141,32 @@ class Simulation():
         self._model_names.append(model.name)
         
         # add model outputs to the simulation output dict 
-        self._outputs.update({model.name +  '_' + output_name: np.nan for output_name in model.outputs})
+        self._outputs.update({self._make_output_attribute_key(model, output_attr): np.nan for output_attr in model.outputs})
         # add model to the execution graph
         self._G.add_node(model)
+
+        # # Add the simulation attributes to the model
+        # input_map answers the question for the model "where do i get my inputs from?" 
+        # It maps the models inputs to the simulation self._outputs dict {'attribute_in': model1.name + '_' + attribute_out}
+        # a given input can therefore retrieved from the simulation output as such: self._outputs[model._sim_input_map[attr_in]]
+        # It gets filled in 'connect'. 
+        model._sim_input_map =  {} 
         
-        # Add extra attributes to the model
-        model._sim_input_map =  {}  # input_map maps a models input to the simulation outputs dict {attribute_in: attribute_out}, gets filled in 'connect'
-        model._sim_next_exec_time = pd.to_datetime('1970-01-01 00:00:00+01:00') # make sure all models are stepped in the first timestep
-        model._sim_timedelta_t =  pd.Timedelta(model.delta_t, self.time_resolution)
+        # timedelta_t is used for speedign up the computation, it is the models timedelta converted to pd.Timedelta
+        model._sim_timedelta_t =  pd.Timedelta(getattr(model, 'delta_t', np.nan), self.time_resolution)
+        
+        # next_exec_time answers the question 'when will the model be executed next time?'
+        # initialized with 1970 date to make sure all models are stepped in the first timestep
+        model._sim_next_exec_time = pd.to_datetime('1970-01-01 00:00:00+01:00') 
+        
+        # triggers_model answers the question 'which models are triggert by a certain model output (attr_out)?'
+        # structure: {'attr_out': [modeltotrigger1, modeltotrigger2]}
+        # It gets filled in 'connect'. 
+        model._sim_triggers_model = {}
+
         self._add_watch_values_to_model(model, watch_values)
 
-    def _add_watch_values_to_model(self, model, watch_values):
+    def _add_watch_values_to_model(self, model, watch_values): # could be made a public method?
         '''Adds values to \'_sim_watch_input/output\' attribute of model'''
         if not hasattr(model, '_sim_watch_inputs'):
             model._sim_watch_inputs = []
@@ -170,35 +185,61 @@ class Simulation():
                 self.dataframe_index_structure.append([model.name, 'outputs', wv]) # Add to MultiIndex of DataFrame
             if not input_or_output: raise SimulationError(f'Non existant input or output {wv} cannot be watched')
 
-    def connect(self, model1, model2, *connections, time_shifted=False, init_values=None):
+    @staticmethod
+    def _make_output_attribute_key(model, output_attr_name):
+        '''Produces a unique key for the Simulation._ouputs dict '''
+        return model.name+'_'+output_attr_name
+
+    def connect(self, model1, model2, *connections, time_shifted=False, init_values=None, triggers=[]):
         '''Connects attribute(s) of model1 to model2
         
-        Arguments:
-        model1 -- model of which the output is connected
-        model2 -- model of which the input is provided
-        *connections:str or tuple -- str 'atr' or tuple (attr_o, attr_i) specifying input and output attribute of the models that need to be connected.
-        time_shifted:bool -- To prevent computational loops, time_shifted connections take the input provided at the last step
-        init_values:dict -- Time shifted connections need an initial value for the outputs of model1 to function in the first step
+        Parameters
+        ----------
+        model1 : model of which the output is connected
+        model2 : model of which the input is provided
+        *connections : str or tuple, str 'atr' or tuple (attr_out, attr_in) specifying output (of model1) and input (of model2) attributes of the models that need to be connected.
+        if the attributes have the same name, a string can be passed
+        time_shifted : bool, To prevent computational loops, time_shifted connections take the input provided at the last step.
+        init_values : dict, Time shifted connections need an initial value for the outputs of model1 (attr_out !) to function in the first step.
+        triggers : list, output attributes (attr_out) of model1, that trigger the execution of model2 when the value changes. 'Big' items should probably be avoided as triggers for performance reasons
         '''
         for connection in connections:
-            if type(connection) == str: # Input and output have the same 'name', only a string can be passed
+            # convert to tuple, if str is passed (if input and output have the same 'name', only a string can be passed)
+            if type(connection) == str: 
                 connection = (connection, connection)
+            
             attribute_out, attribute_in = connection
 
+            # fill model2._sim_input_map (the actual connection process). If it exists allready: raise error
             if attribute_in in model2._sim_input_map:
-                raise SimulationError(f'Trying to set multiple inputs for {model2.name} {attribute_in}')
+                raise SimulationError(f"Trying to set multiple inputs for '{model2.name}' '{attribute_in}'")
             else:
-                model2._sim_input_map.update({attribute_in: attribute_out})
+                model2._sim_input_map.update({attribute_in: self._make_output_attribute_key(model1, attribute_out)})
             
-            if time_shifted: # initialize time shifted connection (start value)
+            # initialize time shifted connection (start value)  
+            if time_shifted: 
                 if not init_values or not attribute_out in init_values: 
                     raise ValueError(f'Time shifted connection requires init_value for \'{attribute_out}\' e.g.: {{\'{attribute_out}\': value}}')
-                self._outputs.update({attribute_out: init_values[attribute_out]})
+                self._outputs.update({self._make_output_attribute_key(model1, attribute_out): init_values.pop(attribute_out)}) # TODO: check if this sounds missleading: output attribute provided but not seen in watch items
+                # self._outputs.update({self._make_output_attribute_key(model1, attribute_out): init_values.pop(attribute_in)}) # alternative
+
+            # Add triggerin attributes (model1 triggers execution of model2)
+            if attribute_out in triggers:
+                triggers.remove(attribute_out)
+                # mapping: {'attr_out': model2}
+                if attribute_out in model1._sim_triggers_model:
+                    model1._sim_triggers_model[attribute_out].append(model2)
+                else:
+                    model1._sim_triggers_model[attribute_out] = [model2]
 
             self._G.add_edge(model1, model2, name=connection, time_shifted=time_shifted)
 
-    def compute_execution_order_from_graph(self, G):
-        '''Computes the models execution order from the initialized nx.graph'''
+        if init_values: raise ValueError(f'Found init_value(s) without corresponding connection: {init_values}')
+        if triggers: raise ValueError(f'Found trigger(s) without corresponding connection: {triggers}')
+
+    @staticmethod
+    def _compute_execution_order_from_graph(G):
+        '''Computes the models execution order from the initialized nx.graph with models at the node and connections between the models represented as edges'''
         
         # Prepare execution graph
         edges_same_time    = [(u,v) for u, v, d in G.edges(data=True) if not d['time_shifted']]
@@ -220,28 +261,25 @@ class Simulation():
             raise SimulationError('There might be a problem with the time-shifted connections')
         
         # determine model execution order
-        return list(nx.topological_sort(G_direction_check)) # sorted_model_execution_list
-    
-    def _check_if_model_inputs_connected(self, model):
-        '''Check if all inputs of the model are provided with an input'''
-        if not all([inp in model._sim_input_map for inp in model.inputs]): raise SimulationError(f'Not all inputs of model \'{model.name}\' are provided')
+        return list(nx.topological_sort(G_direction_check)) # return sorted model execution_list        
     
     def run(self, datetimes):
         '''Runs the simulation on the index datetimes
         
         Arguments:
-        datetimes -- pd.DatetimeIndex specifying the simulation interval and steps.
+        ---------
+        datetimes : pd.DatetimeIndex specifying the simulation interval and steps.
         '''
         self.log.info('Preparing simulation...')
-        sorted_model_execution_list  = self.compute_execution_order_from_graph(self._G)
+        sorted_model_execution_list  = self._compute_execution_order_from_graph(self._G)
 
-        for m in sorted_model_execution_list: self._check_if_model_inputs_connected(m)
+        # Check if all inputs of the model are provided with an input
+        for m in sorted_model_execution_list:
+            missing_inputs = [inp for inp in m.inputs if inp not in m._sim_input_map]
+            if missing_inputs:
+                raise SimulationError(f'Not all inputs of model \'{m.name}\' are provided. Missing inputs: {missing_inputs}')
 
-        # date collection should be moved to its own place but remains here now for debugging purposes
-        # np. arrays should be used, as they are several times faster. (cast to df after simulation)
-        # considder chunk processing for scale up
-        # find nice solution for different time resolutions to avoid sparsity
-        # data_array = np.full((len(datetimes), len(self.output_names)), np.nan, dtype=float) # somehow does not work
+        # TODO: find nice solution for different time resolutions to avoid sparsity
         self.df = pd.DataFrame(columns=pd.MultiIndex.from_tuples(self.dataframe_index_structure, names=['model', 'i/o', 'attribute']))
         
         # logging and status updates
@@ -270,7 +308,15 @@ class Simulation():
                         # get (and remove) next model execution time. If model is event based ('next_exec_time' in  model_outputs) use this value, else use delta_t
                         model._sim_next_exec_time = model_outputs.pop('next_exec_time', model._sim_timedelta_t + time)
 
-                        self._outputs.update(model_outputs, ) # write model outputs to the ouput dict!!
+                        # check for trigger outputs (could probably be more efficient!)
+                        for trigger_attribute, trigger_models in model._sim_triggers_model.items():
+                            # if triggering outputs have changed
+                            if self._outputs[self._make_output_attribute_key(model, trigger_attribute)] != model_outputs[trigger_attribute]: 
+                                # execute the triggered model as soon as possible (does not break execution order!)
+                                for trigger_model in trigger_models:
+                                    trigger_model._sim_next_exec_time = time 
+
+                        self._outputs.update({self._make_output_attribute_key(model, attr_out): value for attr_out, value in model_outputs.items()}) # write model outputs to the ouput dict with correct name
 
                         # logg data
                         if model._sim_watch_inputs:  # if inputs to watch
