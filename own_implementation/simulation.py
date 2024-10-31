@@ -203,6 +203,9 @@ class Simulation():
         init_values : dict, Time shifted connections need an initial value for the outputs of model1 (attr_out !) to function in the first step.
         triggers : list, output attributes (attr_out) of model1, that trigger the execution of model2 when the value changes. 'Big' items should probably be avoided as triggers for performance reasons
         '''
+        for m in [model1, model2]:
+            if m.name not in self._model_names: raise SimulationError(f'Model {m.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
+
         for connection in connections:
             # convert to tuple, if str is passed (if input and output have the same 'name', only a string can be passed)
             if type(connection) == str: 
