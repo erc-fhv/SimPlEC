@@ -109,10 +109,17 @@ class Simulation():
         if not type(model.outputs) == list: raise AttributeError(f'Model \'{model.name}\' \'outputs\' need to be a list of strings for the simulation to work')
         if not hasattr(model, 'step'): raise AttributeError(f'Model \'{model.name}\' has no \'step\' function')
         if not callable(model.step): raise AttributeError(f'Model \'{model.name}\' \'step\' not a callable, which is required for the simulation to work')
-        step_args = list(inspect.signature(model.step).parameters.keys())
-        if not step_args[0] == 'time': raise AttributeError(f'First argument of step function needs to be \'time\' (model \'{model.name}\')')
-        if not all([inp in step_args for inp in model.inputs]): raise AttributeError(f'Not all inputs of model.inputs can be found in step function arguments (model \'{model.name}\')')
-
+        step_params = inspect.signature(model.step).parameters
+        if any([param.kind == param.VAR_KEYWORD for param in step_params.values()]):
+            # variable kwargs in the signature, all further checks are useless. proceed at own risk
+            # In certain cases, one might want to avoid the last check, e.g. when the number of arguments can be changed dynymically on model creation e.g. model.input = [f'P_el_{n}' for n in range n_powers]
+            # The signatue of step() in this case would then be somethig like step(time, **P_el)
+            pass 
+        else:
+            step_args = list(step_params.keys())
+            if not step_args[0] == 'time': raise AttributeError(f'First argument of step function needs to be \'time\' (model \'{model.name}\')')
+            if not all([inp in step_args for inp in model.inputs]): raise AttributeError(f'Not all inputs of model.inputs can be found in step function arguments (model \'{model.name}\')')
+        
     def add_model(self, model, watch_values=[]):
         '''Adds a model to the simulation.
 
