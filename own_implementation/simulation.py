@@ -58,7 +58,7 @@ import pandas as pd
 from copy import copy
 import logging
 import tqdm 
-from tqdm.contrib.logging import logging_redirect_tqdm
+# from tqdm.contrib.logging import logging_redirect_tqdm
 import inspect
 
 from matplotlib.patches import FancyBboxPatch, Rectangle
@@ -68,7 +68,7 @@ class SimulationError(Exception):
     pass
 
 class Simulation():
-    def __init__(self, output_to_file=False, output_data_path='output_data.pkl', log_to_file=False, log_file_path='simulation.log', **kwargs) -> None:
+    def __init__(self, output_to_file=False, output_data_path='output_data.pkl', logger=None, **kwargs) -> None:
         '''
         Creates a simulation object
         
@@ -87,13 +87,13 @@ class Simulation():
         self._G = nx.DiGraph()  # initialize execution graph (the graph is needed to calculate the model execution order)
         
         # set up a logger
-        if log_to_file:
-            self._log_file_name = log_file_path
-            logging.basicConfig(filename=self._log_file_name, encoding='utf-8', format='%(asctime)s %(levelname)-8s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
-        self.log = logging.getLogger(__name__)
-        self.log.disabled = not log_to_file
-        logging_redirect_tqdm(self.log)
-
+        if logger:
+            self.log = logger
+            # logging_redirect_tqdm(self.log)
+        else:
+            self.log = logging.getLogger(__name__) # create unused logger
+            self.log.disabled = True
+        
         # setup the data logging capabilities
         self.model_watch_attributes = {}
 
@@ -331,13 +331,10 @@ class Simulation():
         self.log.info('Running simulation')
         n_steps = len(datetimes)
         pbar = tqdm.tqdm(total=n_steps, desc='Progress', unit='Steps', maxinterval=60)
-        five_percent = int(n_steps/20)
         
         try:
-            for s, time in enumerate(datetimes):
+            for time in datetimes:
                 pbar.update(1) # update progress bar (for use in console)
-                # write progress to logger (when running in background)
-                if s % five_percent == 0: self.log.info(f'Progress: {int(s/five_percent*5): 3}%')
 
                 # step models
                 for model in sorted_model_execution_list:
@@ -374,6 +371,7 @@ class Simulation():
             self.log.error(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'', exc_info=e)
             raise SimulationError(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'') from e
         finally:
+            pbar.close()
             if self.model_watch_attributes and self.output_to_file and not self.df.empty:
                 self.log.info(f'Saving output to {self.output_data_path}!') 
                 self.df.to_pickle(self.output_data_path)
