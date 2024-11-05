@@ -99,6 +99,14 @@ class Simulation():
 
         self.time_resolution = kwargs.pop('time_resolution', 'sec') # get time_resolution (of the models) form kwargs, default: seconds
 
+        # # set up the internal values for the model connection handling
+        
+        # input_map answers the question for the model "where do i get my inputs from?" 
+        # It maps the models inputs to the simulation self._outputs dict {'attribute_in': model1.name + '_' + attribute_out}
+        # It gets filled in 'connect'. 
+        self._model_input_map = {}
+
+
     def _validate_model(self, model):
         '''Check if model fulfilles the requirements for the simulation otherwise raise AttributeError'''
         if not hasattr(model, 'name'): 
@@ -159,12 +167,8 @@ class Simulation():
         # add model to the execution graph
         self._G.add_node(model)
 
-        # # Add the simulation attributes to the model
-        # input_map answers the question for the model "where do i get my inputs from?" 
-        # It maps the models inputs to the simulation self._outputs dict {'attribute_in': model1.name + '_' + attribute_out}
-        # a given input can therefore retrieved from the simulation output as such: self._outputs[model._sim_input_map[attr_in]]
-        # It gets filled in 'connect'. 
-        model._sim_input_map =  {}
+        # # Add model connection attributes
+        self._model_input_map[model.name] = {}
         
         # timedelta_t is used for speedign up the computation, it is the models timedelta converted to pd.Timedelta
         model._sim_timedelta_t =  pd.Timedelta(getattr(model, 'delta_t', np.nan), self.time_resolution)
@@ -226,11 +230,11 @@ class Simulation():
             
             attribute_out, attribute_in = connection
 
-            # fill model2._sim_input_map (the actual connection process). If it exists allready: raise error
-            if attribute_in in model2._sim_input_map:
+            # fill self._model_input_map[model2.name]
+            if attribute_in in self._model_input_map[model2.name]:
                 raise SimulationError(f"Trying to set multiple inputs for '{model2.name}' '{attribute_in}'")
             else:
-                model2._sim_input_map[attribute_in] = (model1.name, attribute_out)
+                self._model_input_map[model2.name][attribute_in] = (model1.name, attribute_out)
             
             # initialize time shifted connection (start value)  
             if time_shifted: 
@@ -280,7 +284,7 @@ class Simulation():
 
     def _get_model_inputs_from_outputs(self, model):
         inputs = {}
-        for input_key, (output_model_name, output_attr) in model._sim_input_map.items():
+        for input_key, (output_model_name, output_attr) in self._model_input_map[model.name].items():
             inputs[input_key] = self._outputs[output_model_name][output_attr]
         return inputs
     
@@ -296,7 +300,7 @@ class Simulation():
 
         # Check if all inputs of the model are provided with an input
         for m in sorted_model_execution_list:
-            missing_inputs = [inp for inp in m.inputs if inp not in m._sim_input_map]
+            missing_inputs = [inp for inp in m.inputs if inp not in self._model_input_map[m.name]]
             if missing_inputs:
                 raise SimulationError(f'Not all inputs of model \'{m.name}\' are provided. Missing inputs: {missing_inputs}')
 
