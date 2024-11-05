@@ -95,17 +95,32 @@ class Simulation():
         logging_redirect_tqdm(self.log)
 
         # setup the data logging capabilities
-        self.dataframe_index_structure = []
+        self.model_watch_attributes = {}
 
         self.time_resolution = kwargs.pop('time_resolution', 'sec') # get time_resolution (of the models) form kwargs, default: seconds
+        self.model_first_exec_time_default = kwargs.pop('model_first_exec_time_default', pd.to_datetime('1970-01-01 00:00:00+01:00'))
 
         # # set up the internal values for the model connection handling
         
         # input_map answers the question for the model "where do i get my inputs from?" 
-        # It maps the models inputs to the simulation self._outputs dict {'attribute_in': model1.name + '_' + attribute_out}
+        # It maps the models inputs to the simulation self._outputs dict {'modelname': {'attribute_in': (model1name, attribute_out)}}
         # It gets filled in 'connect'. 
         self._model_input_map = {}
 
+        # datetime timedeltas of the models for fast next_exec_time calculation,
+        # it contains the models timedelta converted to pd.Timedelta
+        self._model_timedelta_t = {}
+
+        # next_exec_time answers the question 'when will the model be executed next time?'
+        # initialized with 1970 date to make sure all models are stepped in the first timestep
+        self._model_next_exec_time = {}
+
+        # triggers_model answers the question 'which models are triggert by a certain model output (attr_out)?'
+        # structure: {model: {'attr_out': [modeltotrigger1, modeltotrigger2]}}
+        # It gets filled in 'connect', 
+        # model not in dict, if model triggers no model, 
+        # output not in inner dict if output triggers no models 
+        self._model_output_triggers_models = {}
 
     def _validate_model(self, model):
         '''Check if model fulfilles the requirements for the simulation otherwise raise AttributeError'''
@@ -169,38 +184,32 @@ class Simulation():
 
         # # Add model connection attributes
         self._model_input_map[model.name] = {}
-        
-        # timedelta_t is used for speedign up the computation, it is the models timedelta converted to pd.Timedelta
-        model._sim_timedelta_t =  pd.Timedelta(getattr(model, 'delta_t', np.nan), self.time_resolution)
-        
-        # next_exec_time answers the question 'when will the model be executed next time?'
-        # initialized with 1970 date to make sure all models are stepped in the first timestep
-        model._sim_next_exec_time = pd.to_datetime('1970-01-01 00:00:00+01:00') 
-        
-        # triggers_model answers the question 'which models are triggert by a certain model output (attr_out)?'
-        # structure: {'attr_out': [modeltotrigger1, modeltotrigger2]}
-        # It gets filled in 'connect'. 
-        model._sim_triggers_model = {}
-        
-        # which outputs to reccord
-        model._sim_watch_inputs = []
-        model._sim_watch_outputs = []
+        self._model_timedelta_t[model.name] =  pd.Timedelta(getattr(model, 'delta_t', np.nan), self.time_resolution)
+        self.set_model_first_exec_time(model, self.model_first_exec_time_default)
 
         self.add_watch_values_to_model(model, watch_values)
 
-    def add_watch_values_to_model(self, model, watch_values):
+    def add_watch_values_to_model(self, model, watch_values:list):
         '''Adds values to \'_sim_watch_input/output\' attribute of model'''
         for wv in watch_values:
+            if not model.name in self.model_watch_attributes:
+                self.model_watch_attributes[model.name] = {}
+            
             input_or_output = False
             if wv in model.inputs:
-                model._sim_watch_inputs.append(wv)
-                input_or_output = True 
-                self.dataframe_index_structure.append([model.name, 'inputs', wv]) # Add to MultiIndex of DataFrame TODO: move to run / prepare
-            if wv in model.outputs:
+                if not 'inputs' in self.model_watch_attributes[model.name]:
+                    self.model_watch_attributes[model.name]['inputs'] = []
+                self.model_watch_attributes[model.name]['inputs'].append(wv)
                 input_or_output = True
-                model._sim_watch_outputs.append(wv)
-                self.dataframe_index_structure.append([model.name, 'outputs', wv]) # Add to MultiIndex of DataFrame
+            if wv in model.outputs:
+                if not 'outputs' in self.model_watch_attributes[model.name]:
+                    self.model_watch_attributes[model.name]['outputs'] = []
+                self.model_watch_attributes[model.name]['outputs'].append(wv)
+                input_or_output = True
             if not input_or_output: raise SimulationError(f'Non existant input or output {wv} cannot be watched')
+
+    def set_model_first_exec_time(self, model, first_exec_time:pd.Timestamp):
+        self._model_next_exec_time[model.name] = first_exec_time
 
     @staticmethod
     def _make_output_attribute_key(model, output_attr_name):
@@ -223,7 +232,7 @@ class Simulation():
         for m in [model1, model2]:
             if m.name not in self._model_names: raise SimulationError(f'Model {m.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
 
-        for connection in connections:
+        for connection in connections: # TODO: refactor!
             # convert to tuple, if str is passed (if input and output have the same 'name', only a string can be passed)
             if type(connection) == str: 
                 connection = (connection, connection)
@@ -245,11 +254,12 @@ class Simulation():
             # Add triggering attributes (model1 triggers execution of model2)
             if attribute_out in triggers:
                 triggers.remove(attribute_out)
-                # mapping: {'attr_out': [model2]}
-                if attribute_out in model1._sim_triggers_model:
-                    model1._sim_triggers_model[attribute_out].append(model2)
-                else:
-                    model1._sim_triggers_model[attribute_out] = [model2]
+                if not model1.name in self._model_output_triggers_models:
+                    self._model_output_triggers_models[model1.name] = {} # create empty dict
+                if not attribute_out in self._model_output_triggers_models[model1.name]:
+                    self._model_output_triggers_models[model1.name][attribute_out] = []
+
+                self._model_output_triggers_models[model1.name][attribute_out].append(model2)
 
             self._G.add_edge(model1, model2, name=connection, time_shifted=time_shifted)
 
@@ -288,6 +298,17 @@ class Simulation():
             inputs[input_key] = self._outputs[output_model_name][output_attr]
         return inputs
     
+    def _initialize_watch_value_dataframe(self):
+        # TODO: find nice solution for different time resolutions to avoid sparsity
+        if self.model_watch_attributes:
+            # make dataframe MultiIndex from watch attributes dict
+            dataframe_index_structure = []
+            for mname, inpoutpdict in self.model_watch_attributes.items():
+                for inpoutp, attrs in inpoutpdict.items():
+                    for attr in attrs:
+                        dataframe_index_structure.append((mname, inpoutp, attr)) 
+            self.df = pd.DataFrame(columns=pd.MultiIndex.from_tuples(dataframe_index_structure, names=['model', 'i/o', 'attribute']))
+    
     def run(self, datetimes):
         '''Runs the simulation on the index datetimes
         
@@ -304,8 +325,7 @@ class Simulation():
             if missing_inputs:
                 raise SimulationError(f'Not all inputs of model \'{m.name}\' are provided. Missing inputs: {missing_inputs}')
 
-        # TODO: find nice solution for different time resolutions to avoid sparsity
-        self.df = pd.DataFrame(columns=pd.MultiIndex.from_tuples(self.dataframe_index_structure, names=['model', 'i/o', 'attribute']))
+        self._initialize_watch_value_dataframe()
         
         # logging and status updates
         self.log.info('Running simulation')
@@ -322,7 +342,7 @@ class Simulation():
                 # step models
                 for model in sorted_model_execution_list:
                     # determine if the model needs to be steped in this time step
-                    if time >= model._sim_next_exec_time:
+                    if time >= self._model_next_exec_time[model.name]:
                         # get inputs of the model from outputs of the simulation
                         model_inputs = self._get_model_inputs_from_outputs(model)
                         
@@ -330,29 +350,31 @@ class Simulation():
                         model_outputs = copy(model.step(time, **model_inputs)) # copy for safety
 
                         # get (and remove) next model execution time. If model is event based ('next_exec_time' in  model_outputs) use this value, else use delta_t
-                        model._sim_next_exec_time = model_outputs.pop('next_exec_time', model._sim_timedelta_t + time)
+                        self._model_next_exec_time[model.name] = model_outputs.pop('next_exec_time', self._model_timedelta_t[model.name] + time)
 
-                        # check for trigger outputs (could probably be more efficient!)
-                        for trigger_attribute, trigger_models in model._sim_triggers_model.items():
-                            # if triggering outputs have changed
-                            if self._outputs[model.name][trigger_attribute] != model_outputs[trigger_attribute]: 
-                                # execute the triggered model as soon as possible (does not break execution order!)
-                                for trigger_model in trigger_models:
-                                    trigger_model._sim_next_exec_time = time 
+                        # check for trigger outputs
+                        if model.name in self._model_output_triggers_models:
+                            for trigger_attribute, trigger_models in self._model_output_triggers_models[model.name].items():
+                                # if triggering outputs have changed
+                                if self._outputs[model.name][trigger_attribute] != model_outputs[trigger_attribute]: 
+                                    # execute the triggered model as soon as possible (does not break execution order!)
+                                    for trigger_model in trigger_models:
+                                        self._model_next_exec_time[trigger_model.name] = time
 
                         self._outputs[model.name].update(model_outputs) # write model outputs to the ouput dict
 
                         # logg data
-                        if model._sim_watch_inputs:  # if inputs to watch
-                            self.df.loc[time, (model.name, 'inputs', slice(None))] = [model_inputs[wi] for wi in model._sim_watch_inputs]
-                        if model._sim_watch_outputs: # if outputs to watch
-                            self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in model._sim_watch_outputs]
+                        if model.name in self.model_watch_attributes:
+                            if 'inputs' in self.model_watch_attributes[model.name]:
+                                self.df.loc[time, (model.name, 'inputs', slice(None))] = [model_inputs[wi] for wi in self.model_watch_attributes[model.name]['inputs']]
+                            if 'outputs' in self.model_watch_attributes[model.name]:
+                                self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in self.model_watch_attributes[model.name]['outputs']]
                     
         except Exception as e:
             self.log.error(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'', exc_info=e)
             raise SimulationError(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'') from e
         finally:
-            if self.output_to_file and not self.df.empty:
+            if self.model_watch_attributes and self.output_to_file and not self.df.empty:
                 self.log.info(f'Saving output to {self.output_data_path}!') 
                 self.df.to_pickle(self.output_data_path)
             self.log.info(f'Simulation completed successfully!') 
