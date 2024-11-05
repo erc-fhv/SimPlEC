@@ -83,7 +83,7 @@ class Simulation():
         self.output_data_path = output_data_path
         
         self._model_names = []  # initialize lists with model_names, state_name and output_names. those get filled in add_model and is used to check for duplicate names
-        self._outputs = {}  # this dict contains all the output values of the models, the models will collect their inputs from this output
+        self._outputs = {}  # this dict contains all models(names) and their output (if any) structure: nested dict e.g. {'model1name':{'output1': np.nan}, 'model2': {}}. The models will collect their inputs from this output
         self._G = nx.DiGraph()  # initialize execution graph (the graph is needed to calculate the model execution order)
         
         # set up a logger
@@ -100,26 +100,32 @@ class Simulation():
         self.time_resolution = kwargs.pop('time_resolution', 'sec') # get time_resolution (of the models) form kwargs, default: seconds
 
     def _validate_model(self, model):
-        '''Check if model fulfilles the requirements for the simulation'''
-        if not hasattr(model, 'name'): raise AttributeError(f'Model of type \'{type(model)}\' has no attribute name, which is required for the simulation')
-        # if not hasattr(model, 'delta_t'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'delta_t\', which is required for the simulation')
-        if not hasattr(model, 'inputs'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'inputs\', which is required for the simulation')
-        if not type(model.inputs) == list: raise AttributeError(f'Model \'{model.name}\' \'inputs\' need to be a list of strings for the simulation to work')
-        if not hasattr(model, 'outputs'): raise AttributeError(f'Model \'{model.name}\' has no atribute \'outputs\', which is required for the simulation')
-        if not type(model.outputs) == list: raise AttributeError(f'Model \'{model.name}\' \'outputs\' need to be a list of strings for the simulation to work')
-        if not hasattr(model, 'step'): raise AttributeError(f'Model \'{model.name}\' has no \'step\' function')
-        if not callable(model.step): raise AttributeError(f'Model \'{model.name}\' \'step\' not a callable, which is required for the simulation to work')
-        step_params = inspect.signature(model.step).parameters
-        if any([param.kind == param.VAR_KEYWORD for param in step_params.values()]):
-            # variable kwargs in the signature, all further checks are useless. proceed at own risk
-            # In certain cases, one might want to avoid the last check, e.g. when the number of arguments can be changed dynymically on model creation e.g. model.input = [f'P_el_{n}' for n in range n_powers]
-            # The signatue of step() in this case would then be somethig like step(time, **P_el)
-            pass 
-        else:
-            step_args = list(step_params.keys())
-            if not step_args[0] == 'time': raise AttributeError(f'First argument of step function needs to be \'time\' (model \'{model.name}\')')
-            if not all([inp in step_args for inp in model.inputs]): raise AttributeError(f'Not all inputs of model.inputs can be found in step function arguments (model \'{model.name}\')')
+        '''Check if model fulfilles the requirements for the simulation otherwise raise AttributeError'''
+        if not hasattr(model, 'name'): 
+            raise AttributeError(f'Model of type \'{type(model)}\' has no attribute name, which is required for the simulation')
+        # if not hasattr(model, 'delta_t'): # not needed for event based models
+        #     raise AttributeError(f'Model \'{model.name}\' has no atribute \'delta_t\', which is required for the simulation')
+        if not hasattr(model, 'inputs'): 
+            raise AttributeError(f'Model \'{model.name}\' has no atribute \'inputs\', which is required for the simulation')
+        if not type(model.inputs) == list: 
+            raise AttributeError(f'Model \'{model.name}\' \'inputs\' need to be a list of strings for the simulation to work')
+        if not hasattr(model, 'outputs'): 
+            raise AttributeError(f'Model \'{model.name}\' has no atribute \'outputs\', which is required for the simulation')
+        if not type(model.outputs) == list: 
+            raise AttributeError(f'Model \'{model.name}\' \'outputs\' need to be a list of strings for the simulation to work')
+        if not hasattr(model, 'step'): 
+            raise AttributeError(f'Model \'{model.name}\' has no \'step\' function')
+        if not callable(model.step): 
+            raise AttributeError(f'Model \'{model.name}\' \'step\' not a callable, which is required for the simulation to work')
         
+        step_function_params = inspect.signature(model.step).parameters # parameters of the step function
+        step_function_args = list(step_function_params.keys())
+        if not step_function_args[0] == 'time': 
+            raise AttributeError(f'First argument of step function needs to be \'time\' (model \'{model.name}\')')
+        if (not any([param.kind == param.VAR_KEYWORD for param in step_function_params.values()]) # if variable kwargs in the signature, further checks are useless. proceed at own risk
+            and not all([inp in step_function_args for inp in model.inputs])): 
+                raise AttributeError(f'Not all inputs of model.inputs can be found in step function arguments (model \'{model.name}\')')
+            
     def add_model(self, model, watch_values=[]):
         '''Adds a model to the simulation.
 
@@ -143,12 +149,13 @@ class Simulation():
         '''
         self._validate_model(model)
 
-        # check for dupicate models
-        if model.name in self._model_names: raise SimulationError(f'Model.name \'{model.name}\' not unique, which is required for the simulation to work')
+        # check for duplicate models
+        if model.name in self._model_names:   ## TODO remove self._model_names and use self._outputs
+            raise SimulationError(f'Model.name \'{model.name}\' not unique, which is required for the simulation to work')
         self._model_names.append(model.name)
         
         # add model outputs to the simulation output dict 
-        self._outputs.update({self._make_output_attribute_key(model, output_attr): np.nan for output_attr in model.outputs})
+        self._outputs.update({model.name: {output_attr: np.nan for output_attr in model.outputs}})
         # add model to the execution graph
         self._G.add_node(model)
 
@@ -157,7 +164,7 @@ class Simulation():
         # It maps the models inputs to the simulation self._outputs dict {'attribute_in': model1.name + '_' + attribute_out}
         # a given input can therefore retrieved from the simulation output as such: self._outputs[model._sim_input_map[attr_in]]
         # It gets filled in 'connect'. 
-        model._sim_input_map =  {} 
+        model._sim_input_map =  {}
         
         # timedelta_t is used for speedign up the computation, it is the models timedelta converted to pd.Timedelta
         model._sim_timedelta_t =  pd.Timedelta(getattr(model, 'delta_t', np.nan), self.time_resolution)
@@ -170,22 +177,21 @@ class Simulation():
         # structure: {'attr_out': [modeltotrigger1, modeltotrigger2]}
         # It gets filled in 'connect'. 
         model._sim_triggers_model = {}
+        
+        # which outputs to reccord
+        model._sim_watch_inputs = []
+        model._sim_watch_outputs = []
 
-        self._add_watch_values_to_model(model, watch_values)
+        self.add_watch_values_to_model(model, watch_values)
 
-    def _add_watch_values_to_model(self, model, watch_values): # could be made a public method?
+    def add_watch_values_to_model(self, model, watch_values):
         '''Adds values to \'_sim_watch_input/output\' attribute of model'''
-        if not hasattr(model, '_sim_watch_inputs'):
-            model._sim_watch_inputs = []
-        if not hasattr(model, '_sim_watch_outputs'):
-            model._sim_watch_outputs = []
-
         for wv in watch_values:
             input_or_output = False
             if wv in model.inputs:
                 model._sim_watch_inputs.append(wv)
                 input_or_output = True 
-                self.dataframe_index_structure.append([model.name, 'inputs', wv]) # Add to MultiIndex of DataFrame
+                self.dataframe_index_structure.append([model.name, 'inputs', wv]) # Add to MultiIndex of DataFrame TODO: move to run / prepare
             if wv in model.outputs:
                 input_or_output = True
                 model._sim_watch_outputs.append(wv)
@@ -224,19 +230,18 @@ class Simulation():
             if attribute_in in model2._sim_input_map:
                 raise SimulationError(f"Trying to set multiple inputs for '{model2.name}' '{attribute_in}'")
             else:
-                model2._sim_input_map.update({attribute_in: self._make_output_attribute_key(model1, attribute_out)})
+                model2._sim_input_map[attribute_in] = (model1.name, attribute_out)
             
             # initialize time shifted connection (start value)  
             if time_shifted: 
                 if not init_values or not attribute_out in init_values: 
                     raise ValueError(f'Time shifted connection requires init_value for \'{attribute_out}\' e.g.: {{\'{attribute_out}\': value}}')
-                self._outputs.update({self._make_output_attribute_key(model1, attribute_out): init_values.pop(attribute_out)}) # TODO: check if this sounds missleading: output attribute provided but not seen in watch items
-                # self._outputs.update({self._make_output_attribute_key(model1, attribute_out): init_values.pop(attribute_in)}) # alternative
+                self._outputs[model1.name][attribute_out] = init_values.pop(attribute_out) # TODO: check if this sounds missleading: output attribute provided but not seen in watch items
 
-            # Add triggerin attributes (model1 triggers execution of model2)
+            # Add triggering attributes (model1 triggers execution of model2)
             if attribute_out in triggers:
                 triggers.remove(attribute_out)
-                # mapping: {'attr_out': model2}
+                # mapping: {'attr_out': [model2]}
                 if attribute_out in model1._sim_triggers_model:
                     model1._sim_triggers_model[attribute_out].append(model2)
                 else:
@@ -271,7 +276,13 @@ class Simulation():
             raise SimulationError('There might be a problem with the time-shifted connections')
         
         # determine model execution order
-        return list(nx.topological_sort(G_direction_check)) # return sorted model execution_list        
+        return list(nx.topological_sort(G_direction_check)) # return sorted model execution_list
+
+    def _get_model_inputs_from_outputs(self, model):
+        inputs = {}
+        for input_key, (output_model_name, output_attr) in model._sim_input_map.items():
+            inputs[input_key] = self._outputs[output_model_name][output_attr]
+        return inputs
     
     def run(self, datetimes):
         '''Runs the simulation on the index datetimes
@@ -295,11 +306,10 @@ class Simulation():
         # logging and status updates
         self.log.info('Running simulation')
         n_steps = len(datetimes)
+        pbar = tqdm.tqdm(total=n_steps, desc='Progress', unit='Steps', maxinterval=60)
         five_percent = int(n_steps/20)
-
+        
         try:
-            pbar = tqdm.tqdm(total=n_steps, desc='Progress', unit='Steps', maxinterval=60)
-
             for s, time in enumerate(datetimes):
                 pbar.update(1) # update progress bar (for use in console)
                 # write progress to logger (when running in background)
@@ -310,7 +320,7 @@ class Simulation():
                     # determine if the model needs to be steped in this time step
                     if time >= model._sim_next_exec_time:
                         # get inputs of the model from outputs of the simulation
-                        model_inputs = {input_key: self._outputs[output_key] for input_key, output_key in model._sim_input_map.items()}                   
+                        model_inputs = self._get_model_inputs_from_outputs(model)
                         
                         # calculate next model step
                         model_outputs = copy(model.step(time, **model_inputs)) # copy for safety
@@ -321,12 +331,12 @@ class Simulation():
                         # check for trigger outputs (could probably be more efficient!)
                         for trigger_attribute, trigger_models in model._sim_triggers_model.items():
                             # if triggering outputs have changed
-                            if self._outputs[self._make_output_attribute_key(model, trigger_attribute)] != model_outputs[trigger_attribute]: 
+                            if self._outputs[model.name][trigger_attribute] != model_outputs[trigger_attribute]: 
                                 # execute the triggered model as soon as possible (does not break execution order!)
                                 for trigger_model in trigger_models:
                                     trigger_model._sim_next_exec_time = time 
 
-                        self._outputs.update({self._make_output_attribute_key(model, attr_out): value for attr_out, value in model_outputs.items()}) # write model outputs to the ouput dict with correct name
+                        self._outputs[model.name].update(model_outputs) # write model outputs to the ouput dict
 
                         # logg data
                         if model._sim_watch_inputs:  # if inputs to watch
