@@ -14,11 +14,6 @@ setup(
     # long_description_content_type="text/markdown",  # Use README.md as long_description
     # url="https://github.com/your_username/your_repo_name",  # Project URL
     packages=find_packages(),  # Automatically find packages in the directory
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
     python_requires='>=3.7',  # Specify Python version requirements
     install_requires=[
         "numpy",  # List your dependencies here
