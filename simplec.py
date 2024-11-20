@@ -68,37 +68,6 @@ class SimulationError(Exception):
     pass
 
 class Simulation():
-    # this dict contains all models(names) and their output (if any) structure: nested dict e.g. {'model1name':{'output1': np.nan}, 'model2': {}}. The models will collect their inputs from this output
-    _outputs = {}  
-    
-    # create execution graph (the graph is needed to calculate the model execution order based on the connections between the models)
-    _G = nx.DiGraph()  
-    
-    # setup the data logging capabilities
-    model_watch_attributes = {}
-
-    # # set up the internal values for the model connection handling
-    
-    # input_map answers the question for the model "where do i get my inputs from?" 
-    # It maps the models inputs to the simulation self._outputs dict {'modelname': {'attribute_in': (model1name, attribute_out)}}
-    # It gets filled in 'connect'. 
-    _model_input_map = {}
-
-    # datetime timedeltas of the models for fast next_exec_time calculation,
-    # it contains the models timedelta converted to pd.Timedelta
-    _model_timedelta_t = {}
-
-    # next_exec_time answers the question 'when will the model be executed next time?'
-    # initialized with 1970 date to make sure all models are stepped in the first timestep
-    _model_next_exec_time = {}
-
-    # triggers_model answers the question 'which models are triggert by a certain model output (attr_out)?'
-    # structure: {model: {'attr_out': [modeltotrigger1, modeltotrigger2]}}
-    # It gets filled in 'connect', 
-    # model not in dict, if model triggers no model, 
-    # output not in inner dict if output triggers no models 
-    _model_output_triggers_models = {}
-
     def __init__(self, 
                  output_data_path=None, 
                  logger_name=None,
@@ -126,6 +95,37 @@ class Simulation():
         self.log = logging.getLogger(logger_name)
         self.log.disabled = logger_name == None
     
+        # this dict contains all models(names) and their output (if any) structure: nested dict e.g. {'model1name':{'output1': np.nan}, 'model2': {}}. The models will collect their inputs from this output
+        self._outputs = {}  
+        
+        # create execution graph (the graph is needed to calculate the model execution order based on the connections between the models)
+        self._G = nx.DiGraph()  
+        
+        # setup the data logging capabilities
+        self.model_watch_attributes = {}
+
+        # # set up the internal values for the model connection handling
+        
+        # input_map answers the question for the model "where do i get my inputs from?" 
+        # It maps the models inputs to the simulation self._outputs dict {'modelname': {'attribute_in': (model1name, attribute_out)}}
+        # It gets filled in 'connect'. 
+        self._model_input_map = {}
+
+        # datetime timedeltas of the models for fast next_exec_time calculation,
+        # it contains the models timedelta converted to pd.Timedelta
+        self._model_timedelta_t = {}
+
+        # next_exec_time answers the question 'when will the model be executed next time?'
+        # initialized with 1970 date to make sure all models are stepped in the first timestep
+        self._model_next_exec_time = {}
+
+        # triggers_model answers the question 'which models are triggert by a certain model output (attr_out)?'
+        # structure: {model: {'attr_out': [modeltotrigger1, modeltotrigger2]}}
+        # It gets filled in 'connect', 
+        # model not in dict, if model triggers no model, 
+        # output not in inner dict if output triggers no models 
+        self._model_output_triggers_models = {}
+
         self.log.info(f'Initialized Simulation sucessfully')
 
     def add_model(self, model, watch_values=[]):
