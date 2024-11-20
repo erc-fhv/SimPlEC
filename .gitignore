@@ -15,3 +15,6 @@ venv/
 /data/profiles.data
 .venv
 
+__pycache__/
+.vscode/
+simplec_examples/data/*
