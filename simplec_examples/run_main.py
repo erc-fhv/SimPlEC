@@ -1,10 +1,10 @@
 import pandas as pd
 from simulation import Simulation
 
-from models.building_model import BuildingModel
-from models.heat_pump import HeatPump
-from models.hyst_controller import HystController
-from models.weather_model import LocalWeather
+from examples.models.building_model import BuildingModel
+from examples.models.heat_pump import HeatPump
+from examples.models.hyst_controller import HystController
+from examples.models.weather_model import LocalWeather
 
 
 sim = Simulation()

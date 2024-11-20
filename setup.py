@@ -5,21 +5,24 @@ from setuptools import setup, find_packages
 #     long_description = fh.read()
 
 setup(
-    name="SimPlE",  # Replace with your own package name
-    version="0.0.1",  # Initial release version
+    name="simplec",
+    version="0.0.1",
     author="Valentin Seiler",
     author_email="valentin.seiler@fhv.at",
-    description="Simulation Playground for Energy (time discrete and evend discrete cosimulaton)",
-    long_description='',  # long_description,
+    description="Simulation Playground for Energy Communities (time discrete and evend discrete cosimulaton)",
+    long_description='',
     # long_description_content_type="text/markdown",  # Use README.md as long_description
     # url="https://github.com/your_username/your_repo_name",  # Project URL
-    packages=find_packages(),  # Automatically find packages in the directory
-    python_requires='>=3.7',  # Specify Python version requirements
+    packages=['simplec_examples'],  # find_packages(),  # Automatically find packages in the directory
+    py_modules=['simplec'],
+    python_requires='>=3.10',  # Specify Python version requirements
     install_requires=[
-        "numpy",  # List your dependencies here
+        "numpy",
         "networkx",
         "matplotlib",
         "pandas",
         "tqdm",
+        "scipy",
+        "pvlib"
     ],
 )
