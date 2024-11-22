@@ -241,9 +241,7 @@ class Simulation():
         init_values : dict, Time shifted connections need an initial value for the outputs of model1 (attr_out !) to function in the first step.
         triggers : list, output attributes (attr_out) of model1, that trigger the execution of model2 when the value changes. 'Big' items should probably be avoided as triggers for performance reasons
         '''
-        for m in [model1, model2]:
-            if m.name not in self._outputs:
-                raise SimulationError(f'Model {m.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
+        self.models_in_sim(model1, model2)
 
         for connection in connections: # TODO: refactor!
             # convert to tuple, if str is passed (if input and output have the same 'name', only a string can be passed)
@@ -281,8 +279,7 @@ class Simulation():
         if triggers: raise ValueError(f'Found trigger(s) without corresponding connection: {triggers}')
 
     def connect_constant(self, constant, model, *attributes):
-        if model.name not in self._outputs:
-                raise SimulationError(f'Model {model.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
+        self.models_in_sim(model)
         
         for attr in attributes:
             # fill self._model_input_map[model.name]
@@ -295,6 +292,20 @@ class Simulation():
             if not model.name+'_const' in self._outputs:
                 self._outputs[model.name+'_const'] = {}
             self._outputs[model.name+'_const'][attr] = constant
+
+    def connect_nothing(self, model1, model2, time_shifted=False):
+        '''
+        This method ensures correct execution order when models interact independently (e.g. interfaces not handled via simplec).
+        '''
+        self.models_in_sim(model1, model2)
+        # Add connection to graph
+        self._G.add_edge(model1, model2, name='nothing', time_shifted=time_shifted)
+
+    def models_in_sim(self, *models):
+        '''Raises SimulationError if the models are not added to the simulation'''
+        for model in models:
+            if model.name not in self._outputs:
+                raise SimulationError(f'Model {model.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
 
     @staticmethod
     def _compute_execution_order_from_graph(G):
