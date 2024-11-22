@@ -280,6 +280,22 @@ class Simulation():
         if init_values: raise ValueError(f'Found init_value(s) without corresponding connection: {init_values}')
         if triggers: raise ValueError(f'Found trigger(s) without corresponding connection: {triggers}')
 
+    def connect_constant(self, constant, model, *attributes):
+        if model.name not in self._outputs:
+                raise SimulationError(f'Model {model.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
+        
+        for attr in attributes:
+            # fill self._model_input_map[model.name]
+            if attr in self._model_input_map[model.name]:
+                raise SimulationError(f"Trying to set multiple inputs for '{model.name}' '{attr}'")
+            else:
+                self._model_input_map[model.name][attr] = (model.name+'_const', attr)
+
+            # add inputs to the output dict, this value will then not be changed during simulation
+            if not model.name+'_const' in self._outputs:
+                self._outputs[model.name+'_const'] = {}
+            self._outputs[model.name+'_const'][attr] = constant
+
     @staticmethod
     def _compute_execution_order_from_graph(G):
         '''Computes the models execution order from the initialized nx.graph with models at the node and connections between the models represented as edges'''
