@@ -348,7 +348,7 @@ class Simulation():
         if model.name in self._model_output_triggers_models:
             for trigger_attribute, trigger_models in self._model_output_triggers_models[model.name].items():
                 # if triggering outputs have changed
-                if self._outputs[model.name][trigger_attribute] != model_outputs[trigger_attribute]: 
+                if trigger_attribute in model_outputs and self._outputs[model.name][trigger_attribute] != model_outputs[trigger_attribute]:
                     # execute the triggered model as soon as possible (does not break execution order!)
                     for trigger_model in trigger_models:
                         self._model_next_exec_time[trigger_model.name] = time
