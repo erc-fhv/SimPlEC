@@ -192,7 +192,7 @@ class Simulation():
             raise AttributeError(f'First argument of step function needs to be \'time\' (model \'{model.name}\')')
         if (not any([param.kind == param.VAR_KEYWORD for param in step_function_params.values()]) # if variable kwargs in the signature, further checks are useless. proceed at own risk
             and not all([inp in step_function_args for inp in model.inputs])): 
-                raise AttributeError(f'Not all inputs of model.inputs can be found in step function arguments (model \'{model.name}\')')
+                raise AttributeError(f'Not all inputs of \'{model.name}\' as specified in \'model.inputs\' can be found in step function arguments (make sure all inputs are accepted as keyword arguments, including variable length kwargs)')
             
     def add_watch_values_to_model(self, model, watch_values:list):
         '''Adds provided inputs and/or outputs to the list of reccorded values. 
@@ -221,9 +221,12 @@ class Simulation():
                     self.model_watch_attributes[model.name]['outputs'] = []
                 self.model_watch_attributes[model.name]['outputs'].append(watch_value)
                 input_or_output = True
+
+            if watch_value.endswith('*'):
+                raise SimulationError(f'Non-specific input {watch_value} of model {model.name} cannot be watched. Consider making the model inputs explicit.')
             
             if not input_or_output: 
-                raise SimulationError(f'Non existant input or output {watch_value} cannot be watched')
+                raise SimulationError(f'Non existant input or output {watch_value} of model {model.name} cannot be watched')
 
     def set_model_first_exec_time(self, model, first_exec_time:pd.Timestamp):
         self._model_next_exec_time[model.name] = first_exec_time
@@ -249,6 +252,15 @@ class Simulation():
                 connection = (connection, connection)
             
             attribute_out, attribute_in = connection
+
+            # Check if model1 provides this output
+            if not attribute_out in model1.outputs:
+                raise SimulationError(f'Error when connecting {model1.name} to {model2.name}: \'{attribute_out}\' not an output of model \'{model1.name}\'')
+            
+            # Check if model2 accepts this input
+            if not (attribute_in in model2.inputs or
+                [attribute_in.startswith(inp.removesuffix('*')) for inp in model2.inputs if inp.endswith('*')].count(True) == 1): # check if '*'-attributes match the output attribute once
+                raise SimulationError(f'Error when connecting {model1.name} to {model2.name}: \'{attribute_in}\' not an input of model \'{model2.name}\'')
 
             # fill self._model_input_map[model2.name]
             if attribute_in in self._model_input_map[model2.name]:
@@ -372,6 +384,18 @@ class Simulation():
             if 'outputs' in self.model_watch_attributes[model.name]:
                 self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in self.model_watch_attributes[model.name]['outputs']]
 
+    @staticmethod
+    def check_all_model_inputs_provided(model, connected_inputs):
+        '''Check if all inputs of the model are provided with an input, raise SimulationError otherwise'''
+        missing_inputs = model.inputs.copy()
+        for model_inp in model.inputs: # go through all model input attributes
+            for connected_inp in connected_inputs: # go through all connections of the model
+                if connected_inp == model_inp or (model_inp.endswith('*') and connected_inp.startswith(model_inp.removesuffix('*'))): # check if they are equal
+                    missing_inputs.remove(model_inp)
+                    break 
+        if missing_inputs:
+            SimulationError(f'Not all inputs of model \'{model.name}\' are provided. Missing inputs: {missing_inputs}')
+
     def run(self, datetimes):
         '''Runs the simulation on the index datetimes
         
@@ -382,11 +406,8 @@ class Simulation():
         self.log.info('Preparing simulation...')
         sorted_model_execution_list  = self._compute_execution_order_from_graph(self._G)
 
-        # Check if all inputs of the model are provided with an input
-        for m in sorted_model_execution_list:
-            missing_inputs = [inp for inp in m.inputs if inp not in self._model_input_map[m.name]]
-            if missing_inputs:
-                raise SimulationError(f'Not all inputs of model \'{m.name}\' are provided. Missing inputs: {missing_inputs}')
+        for model in sorted_model_execution_list:
+            self.check_all_model_inputs_provided(model, self._model_input_map[model.name])
 
         self._initialize_watch_value_dataframe()
         

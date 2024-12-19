@@ -27,7 +27,7 @@ class ExampleModel():
 
 The simulation can then be run following this simple example (utilizing the `ExampleModel` from above):  
 ```python
-from simulation import Simulation
+from simplec import Simulation
 import pandas
 
 model1   = ExampleModel('example_1')
@@ -50,15 +50,15 @@ sim.run(times)
 
 ## Requirements for the model objects:
 Every model instance needs
- - to have a unique `name` attribute (it makes sense, to pass this to `__init__` if you plan to create more instances of the model class)
- - to implement the `inputs` list, specifying the input attributes of the step function as strings
- - to implement the `outputs` list, specifying the output attributes of the step function as strings
- - to implement the `delta_t` attribute (in seconds) if its a time discrete simulation model
- - to implement a step function:
-    - The step functions first positional argument needs to be `time`. `time` ist the current simulation timestamp of type `pandas.DateTime`.
-    - Further,  all arguments specified in `inputs` need to be accepted as keyword arguments
-    - The step function needs to return a dictionary with the outputs as specified in `self.outputs` as keys.
-    - If the step function returns an argument `next_exec_time`,  `delta_t` is overruled and the model becomes event discrete. 
+- to have a unique `name` attribute (it makes sense, to pass this to `__init__` if you plan to create more instances of the model class)
+- to implement the `inputs` list, specifying the input attributes of the step function as strings
+- to implement the `outputs` list, specifying the output attributes of the step function as strings
+- to implement the `delta_t` attribute (in seconds) if its a time discrete simulation model
+- to implement a step function:
+   - The step functions first positional argument needs to be `time`. `time` ist the current simulation timestamp of type `pandas.DateTime`.
+   - Further,  all arguments specified in `inputs` need to be accepted as keyword arguments
+   - The step function needs to return a dictionary with the outputs as specified in `self.outputs` as keys.
+   - If the step function returns an argument `next_exec_time`,  `delta_t` is overruled and the model becomes event discrete. 
 ## Adding models to the simulation 
 Models can be added to the Simulation by calling `sim.add_model(model, watch_values=['value_in'])`
 Parameters are:
@@ -92,6 +92,9 @@ class ExampleModel()
 	def step(self, time, **P_el):
 		...
 ```
+Another option of simplec to handle several inputs for one attribute is to specify an input attribute ending with a star '\*' such as 'P_el_*'. Then, SimPlEC expects one or more inputs for this attribute. Note that the connected attributes still need to be unique!
+Also note that the explicit way as shown in the example above is allways prefered!
+
 ## Running the simulation 
 The simulation can be run with the `sim.run()` method. 
 Parameters are:
@@ -101,7 +104,8 @@ Parameters are:
 When modelling energy systems in python, one might start by implementing models as simple functions or plain procedural code, stepping through time in a four loop.
 This however becomes quite messy when the models get more and more complex, therefore one might start implementing the models as classes, so that the parameters and states of the models are contained and protected as such:
 ```python
-class ExampleModel():  
+class ExampleModel():
+    delta_t = 1
    def __init__(self):
 		pass
 		
@@ -141,14 +145,44 @@ We decided, to store all outputs in a dictionary, with a key, that combines the 
 model1   = ExampleModel()
 model2   = ExampleModel()
 
-outputs = {'model1_value_out': np.nan, 'model2_value_out': 3}
+outputs = {'model1':{'value_out': np.nan}, 'model2':{'value_out': 3}}
 results = []
 for i in range(20):
-	outputs['model1_value_out'] = model1.step(i, outputs['model2_value_out'])
-	outputs['model2_value_out'] = model2.step(i, outputs['model1_value_out'])
-	results.append(outputs['model2_value_out'])
+	outputs['model1']['value_out'] = model1.step(i, outputs['model2']['value_out'])
+	outputs['model2']['value_out'] = model2.step(i, outputs['model1']['value_out'])
+	results.append(outputs['model2']['value_out'])
+```
+```python
+model1   = ExampleModel()
+model2   = ExampleModel()
+
+outputs = {'model1':{'value_out': np.nan}, 'model2':{'value_out': 3}}
+results = []
+input_map = {'model1': {'value_in': ('model2', 'value_out')},
+              'model2': {'value_in': ('model1', 'value_out')}}
+
+model_execution_list = [model1, model2]
+for i in range(20):
+    for model in model_execution_list:
+        inputs = outputs[input_map[model]['value_in'][0]][input_map[model]['value_in'][1]]
+        outputs[model].update(model.step(i, inputs))
 ```
 
+```python
+model1   = ExampleModel()
+model2   = ExampleModel()
+
+outputs = {'model1':{'value_out': np.nan}, 'model2':{'value_out': 3}}
+model_next_exec_time['model1'] = -1
+model_next_exec_time['model2'] = -1
+results = []
+model_execution_list = [model1, model2]
+for i in range(20):
+    for model in model_execution_list:
+        if model_next_exec_time[model] <= i:
+            model_next_exec_time[model] += model.deta_t
+    	    outputs[model].update(model.step(i, outputs['model2']['value_out']))
+```
 A model then only needs to know, which of the outputs belong to its inputs. Therefore a dictionary is attached to each model object that provides this mapping. The dictionary of model2 could then look like this: `model2_input_map = {'value_in': 'model2_value_out'}`. By iterating over this dict, we can collect all the inputs for model2 from the ouptut dict (here we only have one input but it could of course be many). The iteration as a dict comprehension looks like this:
 `model2_inputs = {input_key: outputs[output_key] for input_key, output_key in model2_input_map.items()}`
 This dict can then be passed to model2 as such: `model2.step(time, **model2_inputs)`. 
