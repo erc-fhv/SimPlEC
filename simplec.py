@@ -74,6 +74,7 @@ class Simulation():
                  enable_progress_bar=True,
                  time_resolution='sec',
                  model_first_exec_time_default=pd.to_datetime('1970-01-01 00:00:00+01:00'),
+                 multiinput_symbol='_'
                  ) -> None:
         '''
         Creates a simulation object
@@ -85,11 +86,13 @@ class Simulation():
         enable_progress_bar : bool show a progress bar while running the simulation (disable for headless use)
         time_resolution: str, Time resolution / unit of the models.delta_t, default: 'sec', (keyword strings according to pandas.Timedelta)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute all models the first time (when using historic value, models get executed at first time step). 
+        multiinput_symbol : str, suffix for model input names, that accept multiple inputs.
         '''
         self.output_data_path = output_data_path
         self.time_resolution = time_resolution
         self.model_first_exec_time_default = model_first_exec_time_default
         self.enable_progress_bar = enable_progress_bar
+        self.multiinput_symbol = multiinput_symbol
 
         # set up a logger
         self.log = logging.getLogger(logger_name)
@@ -222,8 +225,8 @@ class Simulation():
                 self.model_watch_attributes[model.name]['outputs'].append(watch_value)
                 input_or_output = True
 
-            if watch_value.endswith('*'):
-                raise SimulationError(f'Non-specific input {watch_value} of model {model.name} cannot be watched. Consider making the model inputs explicit.')
+            # if watch_value.endswith(self.multiinput_symbol):
+            #     raise Warning(f'Watching multiinput {watch_value} of model {model.name} can lead to a cluttered output dataframe, consider watching individual model outputs.')
             
             if not input_or_output: 
                 raise SimulationError(f'Non existant input or output {watch_value} of model {model.name} cannot be watched')
@@ -258,12 +261,19 @@ class Simulation():
                 raise SimulationError(f'Error when connecting {model1.name} to {model2.name}: \'{attribute_out}\' not an output of model \'{model1.name}\'')
             
             # Check if model2 accepts this input
-            if not (attribute_in in model2.inputs or
-                [attribute_in.startswith(inp.removesuffix('*')) for inp in model2.inputs if inp.endswith('*')].count(True) == 1): # check if '*'-attributes match the output attribute once
+            if not attribute_in in model2.inputs:
                 raise SimulationError(f'Error when connecting {model1.name} to {model2.name}: \'{attribute_in}\' not an input of model \'{model2.name}\'')
 
             # fill self._model_input_map[model2.name]
-            if attribute_in in self._model_input_map[model2.name]:
+            if attribute_in.endswith(self.multiinput_symbol):
+                if attribute_in in self._model_input_map[model2.name]:
+                    if (model1.name, attribute_out) in self._model_input_map[model2.name][attribute_in]:
+                        raise SimulationError(f'Duplicate connection detected: \'{model1.name}\', \'{attribute_out}\' to \'{model2.name}\', \'{attribute_in}\'')
+                    self._model_input_map[model2.name][attribute_in].append((model1.name, attribute_out))
+                else:
+                    self._model_input_map[model2.name][attribute_in] = [(model1.name, attribute_out)]
+                    # same connection!! raise!
+            elif attribute_in in self._model_input_map[model2.name]:            
                 raise SimulationError(f"Trying to set multiple inputs for '{model2.name}' '{attribute_in}'")
             else:
                 self._model_input_map[model2.name][attribute_in] = (model1.name, attribute_out)
@@ -348,8 +358,14 @@ class Simulation():
     def _get_model_inputs_from_outputs(self, model):
         '''Get inputs of the model from outputs of the simulation'''
         inputs = {}
-        for input_key, (output_model_name, output_attr) in self._model_input_map[model.name].items():
-            inputs[input_key] = self._outputs[output_model_name][output_attr]
+        for input_key, output_model_and_attr in self._model_input_map[model.name].items():
+            if input_key.endswith(self.multiinput_symbol): # multiinput attributes
+                inputs[input_key] = []
+                for output_model_name, output_attr in output_model_and_attr:
+                    inputs[input_key].append(self._outputs[output_model_name][output_attr])
+            else:
+                output_model_name, output_attr = output_model_and_attr
+                inputs[input_key] = self._outputs[output_model_name][output_attr]
         return inputs
     
     def _initialize_watch_value_dataframe(self):
@@ -390,7 +406,7 @@ class Simulation():
         missing_inputs = model.inputs.copy()
         for model_inp in model.inputs: # go through all model input attributes
             for connected_inp in connected_inputs: # go through all connections of the model
-                if connected_inp == model_inp or (model_inp.endswith('*') and connected_inp.startswith(model_inp.removesuffix('*'))): # check if they are equal
+                if connected_inp == model_inp: # check if they are equal
                     missing_inputs.remove(model_inp)
                     break 
         if missing_inputs:
