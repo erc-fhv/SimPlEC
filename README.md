@@ -92,8 +92,18 @@ class ExampleModel()
 	def step(self, time, **P_el):
 		...
 ```
-Another option of simplec to handle several inputs for one attribute is to specify an input attribute ending with a star '\*' such as 'P_el_*'. Then, SimPlEC expects one or more inputs for this attribute. Note that the connected attributes still need to be unique!
-Also note that the explicit way as shown in the example above is allways prefered!
+Another option of simplec to handle several inputs for one attribute is to specify an input attribute ending with a star '\_' such as 'P_el_'.Then, SimPlEC expects one or more inputs for this attribute and wraps them into a list, see the following example:
+```python
+class ExampleModel()
+	def __init__(self, n_powers):
+		self.input = ['P_el_']
+		...	
+	def step(self, time, P_el_):
+        # P_el_ is a list here
+		P_tot = sum(P_el_)
+        ...
+```
+ The order of the list is not guaranteed to follow any logic and using this feature only really makes sense, if the order does not matter and the values get agregated (e.g. summed or averaged). If the order matters, the explicit way as shown in the example above should be used!
 
 ## Running the simulation 
 The simulation can be run with the `sim.run()` method. 
