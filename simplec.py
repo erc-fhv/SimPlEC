@@ -82,7 +82,7 @@ class Simulation():
         Parameters
         ----------
         output_data_path : str or None, path for the output pandas.DataFrame to be saved to
-        logger_name : str of None, log some information about the simulation progress if a name is provided (loging needs to be configured, see Python documentation standard library logging) 
+        logger_name : str or None, log some information about the simulation progress if a name is provided (loging needs to be configured, see Python documentation standard library logging) 
         enable_progress_bar : bool show a progress bar while running the simulation (disable for headless use)
         time_resolution: str, Time resolution / unit of the models.delta_t, default: 'sec', (keyword strings according to pandas.Timedelta)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute all models the first time (when using historic value, models get executed at first time step). 
@@ -225,8 +225,8 @@ class Simulation():
                 self.model_watch_attributes[model.name]['outputs'].append(watch_value)
                 input_or_output = True
 
-            # if watch_value.endswith(self.multiinput_symbol):
-            #     raise Warning(f'Watching multiinput {watch_value} of model {model.name} can lead to a cluttered output dataframe, consider watching individual model outputs.')
+            if watch_value.endswith(self.multiinput_symbol):
+                raise SimulationError(f'Multiinput {watch_value} of model {model.name} cannot be watched, consider watching individual model outputs.')
             
             if not input_or_output: 
                 raise SimulationError(f'Non existant input or output {watch_value} of model {model.name} cannot be watched')

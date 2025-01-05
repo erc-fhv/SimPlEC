@@ -92,7 +92,7 @@ class ExampleModel()
 	def step(self, time, **P_el):
 		...
 ```
-Another option of simplec to handle several inputs for one attribute is to specify an input attribute ending with a star '\_' such as 'P_el_'.Then, SimPlEC expects one or more inputs for this attribute and wraps them into a list, see the following example:
+Another option of simplec to handle several inputs for one attribute is to specify an input attribute ending with an underscore '\_' such as 'P_el_'.Then, SimPlEC expects one or more inputs for this attribute and wraps them into a list, see the following example:
 ```python
 class ExampleModel()
 	def __init__(self, n_powers):
