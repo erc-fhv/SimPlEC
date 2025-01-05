@@ -74,6 +74,7 @@ class Simulation():
                  enable_progress_bar=True,
                  time_resolution='sec',
                  model_first_exec_time_default=pd.to_datetime('1970-01-01 00:00:00+01:00'),
+                 multiinput_symbol='_'
                  ) -> None:
         '''
         Creates a simulation object
@@ -81,15 +82,17 @@ class Simulation():
         Parameters
         ----------
         output_data_path : str or None, path for the output pandas.DataFrame to be saved to
-        logger_name : str of None, log some information about the simulation progress if a name is provided (loging needs to be configured, see Python documentation standard library logging) 
+        logger_name : str or None, log some information about the simulation progress if a name is provided (loging needs to be configured, see Python documentation standard library logging) 
         enable_progress_bar : bool show a progress bar while running the simulation (disable for headless use)
         time_resolution: str, Time resolution / unit of the models.delta_t, default: 'sec', (keyword strings according to pandas.Timedelta)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute all models the first time (when using historic value, models get executed at first time step). 
+        multiinput_symbol : str, suffix for model input names, that accept multiple inputs.
         '''
         self.output_data_path = output_data_path
         self.time_resolution = time_resolution
         self.model_first_exec_time_default = model_first_exec_time_default
         self.enable_progress_bar = enable_progress_bar
+        self.multiinput_symbol = multiinput_symbol
 
         # set up a logger
         self.log = logging.getLogger(logger_name)
@@ -192,7 +195,7 @@ class Simulation():
             raise AttributeError(f'First argument of step function needs to be \'time\' (model \'{model.name}\')')
         if (not any([param.kind == param.VAR_KEYWORD for param in step_function_params.values()]) # if variable kwargs in the signature, further checks are useless. proceed at own risk
             and not all([inp in step_function_args for inp in model.inputs])): 
-                raise AttributeError(f'Not all inputs of model.inputs can be found in step function arguments (model \'{model.name}\')')
+                raise AttributeError(f'Not all inputs of \'{model.name}\' as specified in \'model.inputs\' can be found in step function arguments (make sure all inputs are accepted as keyword arguments, including variable length kwargs)')
             
     def add_watch_values_to_model(self, model, watch_values:list):
         '''Adds provided inputs and/or outputs to the list of reccorded values. 
@@ -221,9 +224,12 @@ class Simulation():
                     self.model_watch_attributes[model.name]['outputs'] = []
                 self.model_watch_attributes[model.name]['outputs'].append(watch_value)
                 input_or_output = True
+
+            if watch_value.endswith(self.multiinput_symbol):
+                raise SimulationError(f'Multiinput {watch_value} of model {model.name} cannot be watched, consider watching individual model outputs.')
             
             if not input_or_output: 
-                raise SimulationError(f'Non existant input or output {watch_value} cannot be watched')
+                raise SimulationError(f'Non existant input or output {watch_value} of model {model.name} cannot be watched')
 
     def set_model_first_exec_time(self, model, first_exec_time:pd.Timestamp):
         self._model_next_exec_time[model.name] = first_exec_time
@@ -241,9 +247,7 @@ class Simulation():
         init_values : dict, Time shifted connections need an initial value for the outputs of model1 (attr_out !) to function in the first step.
         triggers : list, output attributes (attr_out) of model1, that trigger the execution of model2 when the value changes. 'Big' items should probably be avoided as triggers for performance reasons
         '''
-        for m in [model1, model2]:
-            if m.name not in self._outputs:
-                raise SimulationError(f'Model {m.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
+        self.models_in_sim(model1, model2)
 
         for connection in connections: # TODO: refactor!
             # convert to tuple, if str is passed (if input and output have the same 'name', only a string can be passed)
@@ -252,8 +256,24 @@ class Simulation():
             
             attribute_out, attribute_in = connection
 
+            # Check if model1 provides this output
+            if not attribute_out in model1.outputs:
+                raise SimulationError(f'Error when connecting {model1.name} to {model2.name}: \'{attribute_out}\' not an output of model \'{model1.name}\'')
+            
+            # Check if model2 accepts this input
+            if not attribute_in in model2.inputs:
+                raise SimulationError(f'Error when connecting {model1.name} to {model2.name}: \'{attribute_in}\' not an input of model \'{model2.name}\'')
+
             # fill self._model_input_map[model2.name]
-            if attribute_in in self._model_input_map[model2.name]:
+            if attribute_in.endswith(self.multiinput_symbol):
+                if attribute_in in self._model_input_map[model2.name]:
+                    if (model1.name, attribute_out) in self._model_input_map[model2.name][attribute_in]:
+                        raise SimulationError(f'Duplicate connection detected: \'{model1.name}\', \'{attribute_out}\' to \'{model2.name}\', \'{attribute_in}\'')
+                    self._model_input_map[model2.name][attribute_in].append((model1.name, attribute_out))
+                else:
+                    self._model_input_map[model2.name][attribute_in] = [(model1.name, attribute_out)]
+                    # same connection!! raise!
+            elif attribute_in in self._model_input_map[model2.name]:            
                 raise SimulationError(f"Trying to set multiple inputs for '{model2.name}' '{attribute_in}'")
             else:
                 self._model_input_map[model2.name][attribute_in] = (model1.name, attribute_out)
@@ -263,6 +283,7 @@ class Simulation():
                 if not init_values or not attribute_out in init_values: 
                     raise ValueError(f'Time shifted connection requires init_value for \'{attribute_out}\' e.g.: {{\'{attribute_out}\': value}}')
                 self._outputs[model1.name][attribute_out] = init_values.pop(attribute_out) # TODO: check if this sounds missleading: output attribute provided but not seen in watch items
+                # TODO Check for duplicate init value if several models ininitlaize connections to the same output, the value is just overridden. Solution: raise Error if the value is different!
 
             # Add triggering attributes (model1 triggers execution of model2)
             if attribute_out in triggers:
@@ -279,6 +300,35 @@ class Simulation():
 
         if init_values: raise ValueError(f'Found init_value(s) without corresponding connection: {init_values}')
         if triggers: raise ValueError(f'Found trigger(s) without corresponding connection: {triggers}')
+
+    def connect_constant(self, constant, model, *attributes):
+        self.models_in_sim(model)
+        
+        for attr in attributes:
+            # fill self._model_input_map[model.name]
+            if attr in self._model_input_map[model.name]:
+                raise SimulationError(f"Trying to set multiple inputs for '{model.name}' '{attr}'")
+            else:
+                self._model_input_map[model.name][attr] = (model.name+'_const', attr)
+
+            # add inputs to the output dict, this value will then not be changed during simulation
+            if not model.name+'_const' in self._outputs:
+                self._outputs[model.name+'_const'] = {}
+            self._outputs[model.name+'_const'][attr] = constant
+
+    def connect_nothing(self, model1, model2, time_shifted=False):
+        '''
+        This method ensures correct execution order when models interact independently (e.g. interfaces not handled via simplec).
+        '''
+        self.models_in_sim(model1, model2)
+        # Add connection to graph
+        self._G.add_edge(model1, model2, name='nothing', time_shifted=time_shifted)
+
+    def models_in_sim(self, *models):
+        '''Raises SimulationError if the models are not added to the simulation'''
+        for model in models:
+            if model.name not in self._outputs:
+                raise SimulationError(f'Model {model.name} needs to be added to the simulation first before it can be connected with sim.add_model(...)')
 
     @staticmethod
     def _compute_execution_order_from_graph(G):
@@ -309,8 +359,14 @@ class Simulation():
     def _get_model_inputs_from_outputs(self, model):
         '''Get inputs of the model from outputs of the simulation'''
         inputs = {}
-        for input_key, (output_model_name, output_attr) in self._model_input_map[model.name].items():
-            inputs[input_key] = self._outputs[output_model_name][output_attr]
+        for input_key, output_model_and_attr in self._model_input_map[model.name].items():
+            if input_key.endswith(self.multiinput_symbol): # multiinput attributes
+                inputs[input_key] = []
+                for output_model_name, output_attr in output_model_and_attr:
+                    inputs[input_key].append(self._outputs[output_model_name][output_attr])
+            else:
+                output_model_name, output_attr = output_model_and_attr
+                inputs[input_key] = self._outputs[output_model_name][output_attr]
         return inputs
     
     def _initialize_watch_value_dataframe(self):
@@ -332,7 +388,7 @@ class Simulation():
         if model.name in self._model_output_triggers_models:
             for trigger_attribute, trigger_models in self._model_output_triggers_models[model.name].items():
                 # if triggering outputs have changed
-                if self._outputs[model.name][trigger_attribute] != model_outputs[trigger_attribute]: 
+                if trigger_attribute in model_outputs and self._outputs[model.name][trigger_attribute] != model_outputs[trigger_attribute]:
                     # execute the triggered model as soon as possible (does not break execution order!)
                     for trigger_model in trigger_models:
                         self._model_next_exec_time[trigger_model.name] = time
@@ -345,6 +401,18 @@ class Simulation():
             if 'outputs' in self.model_watch_attributes[model.name]:
                 self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in self.model_watch_attributes[model.name]['outputs']]
 
+    @staticmethod
+    def check_all_model_inputs_provided(model, connected_inputs):
+        '''Check if all inputs of the model are provided with an input, raise SimulationError otherwise'''
+        missing_inputs = model.inputs.copy()
+        for model_inp in model.inputs: # go through all model input attributes
+            for connected_inp in connected_inputs: # go through all connections of the model
+                if connected_inp == model_inp: # check if they are equal
+                    missing_inputs.remove(model_inp)
+                    break 
+        if missing_inputs:
+            SimulationError(f'Not all inputs of model \'{model.name}\' are provided. Missing inputs: {missing_inputs}')
+
     def run(self, datetimes):
         '''Runs the simulation on the index datetimes
         
@@ -355,11 +423,8 @@ class Simulation():
         self.log.info('Preparing simulation...')
         sorted_model_execution_list  = self._compute_execution_order_from_graph(self._G)
 
-        # Check if all inputs of the model are provided with an input
-        for m in sorted_model_execution_list:
-            missing_inputs = [inp for inp in m.inputs if inp not in self._model_input_map[m.name]]
-            if missing_inputs:
-                raise SimulationError(f'Not all inputs of model \'{m.name}\' are provided. Missing inputs: {missing_inputs}')
+        for model in sorted_model_execution_list:
+            self.check_all_model_inputs_provided(model, self._model_input_map[model.name])
 
         self._initialize_watch_value_dataframe()
         

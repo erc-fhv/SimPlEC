@@ -27,7 +27,7 @@ class ExampleModel():
 
 The simulation can then be run following this simple example (utilizing the `ExampleModel` from above):  
 ```python
-from simulation import Simulation
+from simplec import Simulation
 import pandas
 
 model1   = ExampleModel('example_1')
@@ -50,15 +50,15 @@ sim.run(times)
 
 ## Requirements for the model objects:
 Every model instance needs
- - to have a unique `name` attribute (it makes sense, to pass this to `__init__` if you plan to create more instances of the model class)
- - to implement the `inputs` list, specifying the input attributes of the step function as strings
- - to implement the `outputs` list, specifying the output attributes of the step function as strings
- - to implement the `delta_t` attribute (in seconds) if its a time discrete simulation model
- - to implement a step function:
-    - The step functions first positional argument needs to be `time`. `time` ist the current simulation timestamp of type `pandas.DateTime`.
-    - Further,  all arguments specified in `inputs` need to be accepted as keyword arguments
-    - The step function needs to return a dictionary with the outputs as specified in `self.outputs` as keys.
-    - If the step function returns an argument `next_exec_time`,  `delta_t` is overruled and the model becomes event discrete. 
+- to have a unique `name` attribute (it makes sense, to pass this to `__init__` if you plan to create more instances of the model class)
+- to implement the `inputs` list, specifying the input attributes of the step function as strings
+- to implement the `outputs` list, specifying the output attributes of the step function as strings
+- to implement the `delta_t` attribute (in seconds) if its a time discrete simulation model
+- to implement a step function:
+   - The step functions first positional argument needs to be `time`. `time` ist the current simulation timestamp of type `pandas.DateTime`.
+   - Further,  all arguments specified in `inputs` need to be accepted as keyword arguments
+   - The step function needs to return a dictionary with the outputs as specified in `self.outputs` as keys.
+   - If the step function returns an argument `next_exec_time`,  `delta_t` is overruled and the model becomes event discrete. 
 ## Adding models to the simulation 
 Models can be added to the Simulation by calling `sim.add_model(model, watch_values=['value_in'])`
 Parameters are:
@@ -92,6 +92,19 @@ class ExampleModel()
 	def step(self, time, **P_el):
 		...
 ```
+Another option of simplec to handle several inputs for one attribute is to specify an input attribute ending with an underscore '\_' such as 'P_el_'.Then, SimPlEC expects one or more inputs for this attribute and wraps them into a list, see the following example:
+```python
+class ExampleModel()
+	def __init__(self, n_powers):
+		self.input = ['P_el_']
+		...	
+	def step(self, time, P_el_):
+        # P_el_ is a list here
+		P_tot = sum(P_el_)
+        ...
+```
+ The order of the list is not guaranteed to follow any logic and using this feature only really makes sense, if the order does not matter and the values get agregated (e.g. summed or averaged). If the order matters, the explicit way as shown in the example above should be used!
+
 ## Running the simulation 
 The simulation can be run with the `sim.run()` method. 
 Parameters are:
@@ -101,7 +114,8 @@ Parameters are:
 When modelling energy systems in python, one might start by implementing models as simple functions or plain procedural code, stepping through time in a four loop.
 This however becomes quite messy when the models get more and more complex, therefore one might start implementing the models as classes, so that the parameters and states of the models are contained and protected as such:
 ```python
-class ExampleModel():  
+class ExampleModel():
+    delta_t = 1
    def __init__(self):
 		pass
 		
@@ -128,7 +142,7 @@ Therefore we need to initialize the output of model2 (m2_v) before the simulatio
 
 When there are more models, however, the writing of the four loop becomes quite difficult and not very flexible when the scenario (the interconnections between models) change. 
 That is where the framework comes into play. 
-### Execution order and connections
+## Execution order and connections
 One major question that pops up when implementing the before shown for loop is the order of the models. As can be seen, model1 needs to be stepped before model2 as it provides the output of the latter. The connection between model2 and model1 is then only taking place in the next time step (so time shifted). 
 However, when the scenario becomes more complex, the question on the order becomes more difficult. 
 It turned out, that graphs are a good representation of the connection between the models and that there are frameworks to represent graphs in python. We used networkx and add the models as nodes and the connections as directed edges.
@@ -141,25 +155,110 @@ We decided, to store all outputs in a dictionary, with a key, that combines the 
 model1   = ExampleModel()
 model2   = ExampleModel()
 
-outputs = {'model1_value_out': np.nan, 'model2_value_out': 3}
+outputs = {'model1':{'value_out': np.nan}, 'model2':{'value_out': 3}}
 results = []
 for i in range(20):
-	outputs['model1_value_out'] = model1.step(i, outputs['model2_value_out'])
-	outputs['model2_value_out'] = model2.step(i, outputs['model1_value_out'])
-	results.append(outputs['model2_value_out'])
+	outputs['model1']['value_out'] = model1.step(i, outputs['model2']['value_out'])
+	outputs['model2']['value_out'] = model2.step(i, outputs['model1']['value_out'])
+	results.append(outputs['model2']['value_out'])
+```
+```python
+model1   = ExampleModel()
+model2   = ExampleModel()
+
+outputs = {'model1':{'value_out': np.nan}, 'model2':{'value_out': 3}}
+results = []
+input_map = {'model1': {'value_in': ('model2', 'value_out')},
+              'model2': {'value_in': ('model1', 'value_out')}}
+
+model_execution_list = [model1, model2]
+for i in range(20):
+    for model in model_execution_list:
+        inputs = outputs[input_map[model]['value_in'][0]][input_map[model]['value_in'][1]]
+        outputs[model].update(model.step(i, inputs))
 ```
 
+```python
+model1   = ExampleModel()
+model2   = ExampleModel()
+
+outputs = {'model1':{'value_out': np.nan}, 'model2':{'value_out': 3}}
+model_next_exec_time['model1'] = -1
+model_next_exec_time['model2'] = -1
+results = []
+model_execution_list = [model1, model2]
+for i in range(20):
+    for model in model_execution_list:
+        if model_next_exec_time[model] <= i:
+            model_next_exec_time[model] += model.deta_t
+    	    outputs[model].update(model.step(i, outputs['model2']['value_out']))
+```
 A model then only needs to know, which of the outputs belong to its inputs. Therefore a dictionary is attached to each model object that provides this mapping. The dictionary of model2 could then look like this: `model2_input_map = {'value_in': 'model2_value_out'}`. By iterating over this dict, we can collect all the inputs for model2 from the ouptut dict (here we only have one input but it could of course be many). The iteration as a dict comprehension looks like this:
 `model2_inputs = {input_key: outputs[output_key] for input_key, output_key in model2_input_map.items()}`
 This dict can then be passed to model2 as such: `model2.step(time, **model2_inputs)`. 
 The input map of each model is computed in the `sim.connect()` method and assigned to each model directly (no proxies, no more nested structures than needed) as such `model._sim_input_map`. Naming convention: All attributes added to the model by the simulation start with `_sim_`.
-### Different time resolutions of models
+## Different time resolutions of models
 As models can have different time resolutions, each iteration, the question arises, if a model should be stepped or not. This is determined by the `delta_t` attribute of the model or if the model is event based by the return value of `next_exec_time`. 
 Therefore, an attribute `model._sim_next_exec_time` is assigned to each model. If a model returns a `next_exec_time` this value is used, if not, this value is computed based on the `delta_t`  attribute of the model. With this, we can decide if a model needs to be stepped, if the current simulation time is >= a models `next_exec_time`.
 This implies, that if a model provides the input of another model but the first one is not stepped, the previous output is  retrieved from the `output` dict as input of the latter model.
-### Triggering attributes for event based models
+## Triggering attributes for event based models
 For event based simulation, it might be necessary, to trigger a models execution, based on the output of another model. An example could be a heat pump, which is in an off state but should start computing output values, as soon as the controller tells it to start. 
 To achieve this, each model is assigned a `model._sim_triggers_model` dict. This dict looks like this: `{'attr_out': [modeltotrigger1, modeltotrigger2]}`. In the simulation loop, this dict is iterated, and a comparison between the previous output and the current output of the model is made for each `attr_out` in the `_sim_triggers_model` dict. If a difference is detected, the models (`[modeltotrigger1, modeltotrigger2]`)  need to be executed as soon as possible but without breaking the execution direction. This is done by setting `modeltotrigger1._sim_next_exec_time` to the current simulation time. Therefore it gets executed in this time step if the connection is not time shifted or executed in the next time step if the connection is time shifted based on the execution direction.
+
+# More advanced / other concepts
+## Independent interfaces
+When modelling controll methods or data infrastructure, one might quickly find time discrete simulation limiting. And even the event discrete simulation, as it is implemented in simplec, might not fullfil all needs for simulation. Therefore one might start implementing custom methods for the models which interact with each other independent of the framework (one could call this agent based).
+The following example ilustrates a simple example of an interaction between a GridOperator and a SmartMeter:
+```python
+import pandas as pd
+
+class SmartMeter():
+    def __init__(self, name, n_loads=1):
+        self.name = name
+        self.delta_t = 60  # s
+
+        self.inputs = [f'P_{n}' for n in range(n_loads)]
+        self.outputs = ['P_Grid', 'P_quarterhourly_data']
+
+        self._P_quarter_hourly_data = pd.DataFrame([])
+
+    def step(self, time, *P_behind_meter):
+        P_grid = sum(P_behind_meter)
+        self._P_quarter_hourly_data[time, 'P'] = P_grid
+
+        return {'P_Grid': P_grid}
+
+    def retrieve_data(self):
+        return self._P_quarter_hourly_data # seach for / implement 'pop method' which empties dataframe but returns the values
+
+class GridOperator():
+    def __init__(self, *smart_meter_models):
+        self.smart_meter_models = smart_meter_models
+
+    def step(self, time, inputs):
+        for smart_meter_model in self.smart_meter_models:
+            self.smart_meter_data = smart_meter_model.retrieve_data()
+```
+To support this style of modelling, simplec provides the `sim.connect_nothing()` method. This method connects no attributes but can be used to maintain the execution order of models, that interact independently of the framework. 
+This provides flexibility for modelling in an unintrusive way. 
+The given example models from above would then be connected as such, to ensure, the `SmartMeter` is stepped before the `GridOperator`:
+```python
+sim = Simulation()
+sm = SmartMeter()
+go = GridOperator(sm)
+
+sim.add(sm)
+sim.add(go)
+
+sim.connect_nothing(sm, go)
+
+times = pandas.date_range('2021-01-01 00:00:00', 
+						  '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
+sim.run(times)
+``` 
+# TODO: Make everything consistent!!
+- naming of simplec in text SimPlEC
+- time index: period Index???
 
 # Why another framework?
 - We found other frameworks to be complex for most of our use cases.
