@@ -283,6 +283,7 @@ class Simulation():
                 if not init_values or not attribute_out in init_values: 
                     raise ValueError(f'Time shifted connection requires init_value for \'{attribute_out}\' e.g.: {{\'{attribute_out}\': value}}')
                 self._outputs[model1.name][attribute_out] = init_values.pop(attribute_out) # TODO: check if this sounds missleading: output attribute provided but not seen in watch items
+                # TODO Check for duplicate init value if several models ininitlaize connections to the same output, the value is just overridden. Solution: raise Error if the value is different!
 
             # Add triggering attributes (model1 triggers execution of model2)
             if attribute_out in triggers:
