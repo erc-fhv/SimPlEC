@@ -16,5 +16,6 @@ venv/
 .venv
 
 __pycache__/
-.vscode/
+.vscode
 simplec_examples/data/*
+.pytest_cache

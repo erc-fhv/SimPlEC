@@ -106,6 +106,8 @@ class Simulation():
         
         # setup the data logging capabilities
         self.model_watch_attributes = {}
+        self.model_heavy_watch_attributes = {}
+        self.data = {} # heavy watch values are stored here {attr: {datetime: value}}
 
         # # set up the internal values for the model connection handling
         
@@ -131,7 +133,7 @@ class Simulation():
 
         self.log.info(f'Initialized Simulation sucessfully')
 
-    def add_model(self, model, watch_values=[]):
+    def add_model(self, model, watch_values=[], watch_heavy=[]):
         '''Adds a model to the simulation.
 
         Parameters
@@ -150,7 +152,8 @@ class Simulation():
                 return {'value_out': value_out}
         """
 
-        watch_values : adds a models input or output to the reccorded values (pandas.DataFrame). Only watch numeric values that can safely be cast into a pandas DataFrame 
+        watch_values : adds a models input or output to the reccorded values (pandas.DataFrame). Access after simulation with: sim.df. Only watch numeric values that can safely be cast into a pandas DataFrame!
+        watch_heavy : adds a models input or output to the reccorded data (dict). Access values after simulation with: sim.data. Anything can be reccorded but performance might be limited. Only suggested for debugging purposes!
         '''
         self._validate_model(model)
 
@@ -169,6 +172,7 @@ class Simulation():
 
         # Add data logging capabilities
         self.add_watch_values_to_model(model, watch_values)
+        self.add_heavy_watch_values_to_model(model, watch_heavy)
 
     def _validate_model(self, model):
         '''Check if model fulfilles the requirements for the simulation otherwise raise Error'''
@@ -230,6 +234,43 @@ class Simulation():
             
             if not input_or_output: 
                 raise SimulationError(f'Non existant input or output {watch_value} of model {model.name} cannot be watched')
+            
+    def add_heavy_watch_values_to_model(self, model, watch_heavy:list):
+        '''Adds provided inputs and/or outputs to the list of reccorded values. 
+        After complete simulation, the values can be found in sim.data
+        
+        Parameters
+        ----------
+        model : model of which inuts and/or output will be reccorded
+        watch_heavy : list of str, input and/or output attributes of the model to be reccorded
+        '''
+        for watch_value in watch_heavy:
+            # Add model to watched models dict if needed (only add if watch values present!!)
+            if not model.name in self.model_heavy_watch_attributes:
+                self.model_heavy_watch_attributes[model.name] = {}         
+            
+            input_or_output = False
+
+            if watch_value in model.inputs:
+                if not 'inputs' in self.model_heavy_watch_attributes[model.name]:
+                    self.model_heavy_watch_attributes[model.name]['inputs'] = []
+                self.model_heavy_watch_attributes[model.name]['inputs'].append(watch_value)
+                self.data[(model.name, 'inputs', watch_value)] = {}
+                input_or_output = True
+
+            if watch_value in model.outputs:
+                if not 'outputs' in self.model_heavy_watch_attributes[model.name]:
+                    self.model_heavy_watch_attributes[model.name]['outputs'] = []
+                self.model_heavy_watch_attributes[model.name]['outputs'].append(watch_value)
+                self.data[(model.name, 'outputs', watch_value)] = {}
+                input_or_output = True
+
+            if watch_value.endswith(self.multiinput_symbol):
+                raise SimulationError(f'Multiinput {watch_value} of model {model.name} cannot be watched, consider watching individual model outputs.')
+            
+            if not input_or_output: 
+                raise SimulationError(f'Non existant input or output {watch_value} of model {model.name} cannot be watched')
+
 
     def set_model_first_exec_time(self, model, first_exec_time:pd.Timestamp):
         self._model_next_exec_time[model.name] = first_exec_time
@@ -400,6 +441,15 @@ class Simulation():
                 self.df.loc[time, (model.name, 'inputs', slice(None))] = [model_inputs[wi] for wi in self.model_watch_attributes[model.name]['inputs']]
             if 'outputs' in self.model_watch_attributes[model.name]:
                 self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in self.model_watch_attributes[model.name]['outputs']]
+
+        # logg heavy data
+        if model.name in self.model_heavy_watch_attributes:
+            if 'inputs' in self.model_heavy_watch_attributes[model.name]:
+                for wi in self.model_heavy_watch_attributes[model.name]['inputs']:
+                    self.data[(model.name, 'inputs', wi)].update({time: model_inputs[wi]})
+            if 'outputs' in self.model_heavy_watch_attributes[model.name]:
+                for wi in self.model_heavy_watch_attributes[model.name]['outputs']:
+                    self.data[(model.name, 'outputs', wi)].update({time: model_outputs[wi]})
 
     @staticmethod
     def check_all_model_inputs_provided(model, connected_inputs):
