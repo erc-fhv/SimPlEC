@@ -81,7 +81,7 @@ class Simulation():
         
         Parameters
         ----------
-        output_data_path : str or None, path for the output pandas.DataFrame to be saved to
+        output_data_path : str or None, path for the output pandas.DataFrame to be saved to. The extension specifies the filetype. Options are: '.pkl', '.csv', '.parquet'.
         logger_name : str or None, log some information about the simulation progress if a name is provided (loging needs to be configured, see Python documentation standard library logging) 
         enable_progress_bar : bool show a progress bar while running the simulation (disable for headless use)
         time_resolution: str, Time resolution / unit of the models.delta_t, default: 'sec', (keyword strings according to pandas.Timedelta)
@@ -520,11 +520,21 @@ class Simulation():
             self.log.error(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'', exc_info=e)
             raise SimulationError(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'') from e
         finally:
+            # create DataFrame
             if hasattr(self, 'array'):
                 self.df = pd.DataFrame(self.array, index=datetimes, columns=self._df_multiindex)
+            # Save DataFrame
             if self.model_watch_attributes and self.output_data_path and not self.df.empty:
-                self.log.info(f'Saving output to {self.output_data_path}!') 
-                self.df.to_pickle(self.output_data_path)
+                self.log.info(f'Saving output to {self.output_data_path}!')
+                if self.output_data_path.endswith('.pkl'):
+                    self.df.to_pickle(self.output_data_path)
+                elif self.output_data_path.endswith('.csv'):
+                    self.df.to_csv(self.output_data_path)
+                elif self.output_data_path.endswith('.parquet'):
+                    self.df.to_parquet(self.output_data_path)
+                else:
+                    self.df.to_pickle(self.output_data_path+'.pkl')
+                
             self.log.info(f'Simulation completed successfully!') 
 
     def draw_exec_graph(self):
