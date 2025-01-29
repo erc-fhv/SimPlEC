@@ -107,6 +107,8 @@ class Simulation():
         # setup the data logging capabilities
         self.model_watch_attributes = {}
         self.model_heavy_watch_attributes = {}
+        self.model_watch_attributes_index = {} # {model: {inputs: [(attr, index), (attr, index)]}}
+
         self.data = {} # heavy watch values are stored here {attr: {datetime: value}}
 
         # # set up the internal values for the model connection handling
@@ -411,16 +413,27 @@ class Simulation():
         return inputs
     
     def _initialize_watch_value_dataframe(self, datetimes):
-        # TODO: find nice solution for different time resolutions to avoid sparsity
+        # TODO: find nice solution for different time resolutions to avoid sparsity (might aswell not be a storage issue)
+        # TODO: refactor (exchanging df with array was a quickfix, therefore messy code)
         if self.model_watch_attributes:
+            ind = 0
             # make dataframe MultiIndex from watch attributes dict
             dataframe_index_structure = []
             for mname, inpoutpdict in self.model_watch_attributes.items():
+                self.model_watch_attributes_index[mname] = {}
                 for inpoutp, attrs in inpoutpdict.items():
+                    self.model_watch_attributes_index[mname][inpoutp] = [] 
                     for attr in attrs:
-                        dataframe_index_structure.append((mname, inpoutp, attr)) 
-            self.df = pd.DataFrame(index=datetimes, columns=pd.MultiIndex.from_tuples(dataframe_index_structure, names=['model', 'i/o', 'attribute']))
-    
+                        self.model_watch_attributes_index[mname][inpoutp].append((attr, ind))
+                        ind += 1
+                        dataframe_index_structure.append((mname, inpoutp, attr))
+
+            self._df_multiindex = pd.MultiIndex.from_tuples(dataframe_index_structure, names=['model', 'i/o', 'attribute'])
+            self.df = pd.DataFrame([]) # index=datetimes, columns=pd.MultiIndex.from_tuples(dataframe_index_structure, names=['model', 'i/o', 'attribute']))
+
+            self.array = np.full((len(datetimes), ind), np.nan, np.float64)
+
+            
     def _update_model_next_exec_time(self, model, model_outputs, time):
         '''get (and remove) next model execution time. If model is event based ('next_exec_time' in  model_outputs) use this value, else use delta_t'''
         self._model_next_exec_time[model.name] = model_outputs.pop('next_exec_time', self._model_timedelta_t[model.name] + time)
@@ -434,15 +447,16 @@ class Simulation():
                     for trigger_model in trigger_models:
                         self._model_next_exec_time[trigger_model.name] = time
 
-    def _log_data(self, model, model_inputs, model_outputs, time):
+    def _log_data(self, model, model_inputs, model_outputs, time, t):
         # logg data
         if model.name in self.model_watch_attributes:
-            if 'inputs' in self.model_watch_attributes[model.name]:
-                for wi in self.model_watch_attributes[model.name]['inputs']:
-                    self.df.at[time, (model.name, 'inputs', wi)] = model_inputs[wi]  # [model_inputs[wi] for wi in self.model_watch_attributes[model.name]['inputs']]
-            if 'outputs' in self.model_watch_attributes[model.name]:
-                for wo in self.model_watch_attributes[model.name]['outputs']:
-                    self.df.at[time, (model.name, 'outputs', wo)] = model_outputs[wo] # [model_outputs[wo] for wo in self.model_watch_attributes[model.name]['outputs']]
+            watch_attr_index = self.model_watch_attributes_index[model.name]
+            if 'inputs' in watch_attr_index:
+                for wi, i in watch_attr_index['inputs']:
+                    self.array[t, i] = model_inputs[wi]
+            if 'outputs' in watch_attr_index:
+                for wo, i in watch_attr_index['outputs']:
+                    self.array[t, i] = model_outputs[wo]
 
         # logg heavy data
         if model.name in self.model_heavy_watch_attributes:
@@ -484,7 +498,7 @@ class Simulation():
         self.log.info('Running simulation')
         
         try:
-            for time in tqdm.tqdm(datetimes, desc='Progress', unit='Steps', maxinterval=60, disable=not self.enable_progress_bar): # add progress bar
+            for t, time in tqdm.tqdm(enumerate(datetimes), desc='Progress', unit='Steps', maxinterval=60, disable=not self.enable_progress_bar): # add progress bar
                 for model in sorted_model_execution_list:
                     # determine if the model needs to be steped in this time step
                     if time >= self._model_next_exec_time[model.name]:
@@ -500,12 +514,14 @@ class Simulation():
 
                         self._outputs[model.name].update(model_outputs) # write model outputs to the ouput dict
 
-                        self._log_data(model, model_inputs, model_outputs, time)
+                        self._log_data(model, model_inputs, model_outputs, time, t)
                         
         except Exception as e:
             self.log.error(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'', exc_info=e)
             raise SimulationError(f'Error occured at sim-time \'{time}\' and during the processing of model \'{model.name}\'') from e
         finally:
+            if hasattr(self, 'array'):
+                self.df = pd.DataFrame(self.array, index=datetimes, columns=self._df_multiindex)
             if self.model_watch_attributes and self.output_data_path and not self.df.empty:
                 self.log.info(f'Saving output to {self.output_data_path}!') 
                 self.df.to_pickle(self.output_data_path)
