@@ -410,7 +410,7 @@ class Simulation():
                 inputs[input_key] = self._outputs[output_model_name][output_attr]
         return inputs
     
-    def _initialize_watch_value_dataframe(self):
+    def _initialize_watch_value_dataframe(self, datetimes):
         # TODO: find nice solution for different time resolutions to avoid sparsity
         if self.model_watch_attributes:
             # make dataframe MultiIndex from watch attributes dict
@@ -419,7 +419,7 @@ class Simulation():
                 for inpoutp, attrs in inpoutpdict.items():
                     for attr in attrs:
                         dataframe_index_structure.append((mname, inpoutp, attr)) 
-            self.df = pd.DataFrame(columns=pd.MultiIndex.from_tuples(dataframe_index_structure, names=['model', 'i/o', 'attribute']))
+            self.df = pd.DataFrame(index=datetimes, columns=pd.MultiIndex.from_tuples(dataframe_index_structure, names=['model', 'i/o', 'attribute']))
     
     def _update_model_next_exec_time(self, model, model_outputs, time):
         '''get (and remove) next model execution time. If model is event based ('next_exec_time' in  model_outputs) use this value, else use delta_t'''
@@ -438,9 +438,11 @@ class Simulation():
         # logg data
         if model.name in self.model_watch_attributes:
             if 'inputs' in self.model_watch_attributes[model.name]:
-                self.df.loc[time, (model.name, 'inputs', slice(None))] = [model_inputs[wi] for wi in self.model_watch_attributes[model.name]['inputs']]
+                for wi in self.model_watch_attributes[model.name]['inputs']:
+                    self.df.at[time, (model.name, 'inputs', wi)] = model_inputs[wi]  # [model_inputs[wi] for wi in self.model_watch_attributes[model.name]['inputs']]
             if 'outputs' in self.model_watch_attributes[model.name]:
-                self.df.loc[time, (model.name, 'outputs', slice(None))] = [model_outputs[wo] for wo in self.model_watch_attributes[model.name]['outputs']]
+                for wo in self.model_watch_attributes[model.name]['outputs']:
+                    self.df.at[time, (model.name, 'outputs', wo)] = model_outputs[wo] # [model_outputs[wo] for wo in self.model_watch_attributes[model.name]['outputs']]
 
         # logg heavy data
         if model.name in self.model_heavy_watch_attributes:
@@ -476,7 +478,7 @@ class Simulation():
         for model in sorted_model_execution_list:
             self.check_all_model_inputs_provided(model, self._model_input_map[model.name])
 
-        self._initialize_watch_value_dataframe()
+        self._initialize_watch_value_dataframe(datetimes)
         
         # logging and status updates
         self.log.info('Running simulation')
