@@ -2,11 +2,21 @@
 
 # Introduction
 
-The framework can be used to connect and simulate time discrete and event discrete models and record the model outputs.
+SimPlEC is a Python framework to connect and simulate time discrete and event discrete models.
 
-SimPlE is meant to be used rather as a script than a finished package. Therefore the focus of the framework lays in readability and simplicity. We encourage the user to adapt the framework to their own needs. 
+SimPlEC is currently meant to be used rather as a script than a finished package. Therefore the focus of the framework lays in simplicity. We encourage the user to adapt the framework to their own needs. 
+Many concepts regaridng time and interfaces are based on the cosimulation framework MOSAIK.
 
 # How to use the framework
+
+## Installation
+SimPlEC can either be installed with pip using the following command: pip install git+https://github.com/erc-fhv/SimPlEC or simply be cloned/downloaded from this repository.
+
+## Getting Started
+To conduct a simulation with SimPlEC, one needs a number of models and a scenario, where theese models will be connected. 
+The models are connected on a 'per-time-step' basis. This means that components which are closely coupled should be simulated as one componenent instead of connecting them via SimPlEC.
+The models are simple python clases which will be instantiated in the scenario file and then added to the SimPlEC Simulation.
+See the following examples:  
 
 The models need to follow the following structure:
 ```python
@@ -47,6 +57,7 @@ times = pandas.date_range('2021-01-01 00:00:00',
 
 sim.run(times)
 ```
+Reccords of the simulation which are specified for each model with the `watch_value` attribute can be retrieved by accessing the pandas dataframe with `sim.df`.
 
 ## Requirements for the model objects:
 Every model instance needs
@@ -65,7 +76,9 @@ Parameters are:
 - `model` : The model object to add to the simulation following the above requirements
 - `watch_values` : any inputs or outputs (corresponding to the models input and output lists) that need to be recorded for the output 
   This output will then be stored in a `pandas.Dataframe` which can be accessed after the simulation as finished with `sim.df` 
-  A Word of Warning: even though, arbitrarily objects can be passed in between the models, **only watch values that can safely be stored in a `pandas.DataFrame` (e.g. numeric values)**.
+  A Word of Warning: even though, arbitrarily objects can be passed in between the models, **only watch values that can safely be stored in a `pandas.DataFrame` (e.g. numeric values)** for other object see the next keyword.
+- `watch_heavy` This works similar to `watch_values` but stores 'heavy objects' like lists or pandas DataFrames which are exchanged in between models, the reccords can be accesed after the simulation with `sim.data`.
+
 ## Connecting models 
 Models can be connected by utilizing the `sim.connect()` method.
 outputs of one model can be connected to inputs of another model.
@@ -82,17 +95,7 @@ Parameters are:
 `triggers` : list, output attributes (attr_out) of model1, that trigger the execution of model2 when the value changes. This makes the simulation event based! **Make sure you know what you are doing, there are no internal checks for the model types, any model can be triggered at any time!** 'Big' items should probably be avoided as triggers. For performance reasons numerical values or strings are preferable.
 
 Connecting several models to one input:
-If you think you need to connect several inputs to one model, the model needs to be able to handle this internally. As we want to avoid nested structures of inputs and outputs, you will then have to pass each of the inputs separately. If you want to change the number of arguments parametrically, you can adjust the models `__init__` so that the number of inputs can be changed dynamically on creation for example as such 
-```python
-class ExampleModel()
-	def __init__(self, n_powers):
-		self.input = [f'P_el_{n}' for n in range n_powers]
-		...	
-	# The signatue of step() in this case would then be somethig like
-	def step(self, time, **P_el):
-		...
-```
-Another option of simplec to handle several inputs for one attribute is to specify an input attribute ending with an underscore '\_' such as 'P_el_'.Then, SimPlEC expects one or more inputs for this attribute and wraps them into a list, see the following example:
+If you think you need to connect several inputs to one model, the model needs to be able to handle this internally. One option of SimPlEC to handle several inputs for one attribute is to specify an input attribute ending with an underscore '\_' such as 'P_el_'.Then, SimPlEC expects one or more inputs for this attribute and wraps them into a list, see the following example:
 ```python
 class ExampleModel()
 	def __init__(self, n_powers):
@@ -103,12 +106,24 @@ class ExampleModel()
 		P_tot = sum(P_el_)
         ...
 ```
- The order of the list is not guaranteed to follow any logic and using this feature only really makes sense, if the order does not matter and the values get agregated (e.g. summed or averaged). If the order matters, the explicit way as shown in the example above should be used!
+The order of the list is not guaranteed to follow any logic and using this feature only really makes sense, if the order does not matter and the values get agregated (e.g. summed or averaged). 
+If the order matters, the models need to be adjusted, to explicitly accept theese inputs individually, as we want to avoid nested structures of inputs and outputs.
+If you want to change the number of Inputs parametrically, you can adjust the models `__init__` so that the number of inputs can be changed dynamically on creation for example as such 
+```python
+class ExampleModel()
+	def __init__(self, n_powers):
+		self.input = [f'P_el_{n}' for n in range n_powers]
+		...	
+	# The signatue of step() in this case would then be somethig like
+	def step(self, time, **P_el):
+		...
+```
+However we discurage the use of this dynamic creation and suggest to use models as 'scripts' and adujst the code to ones specific need. 
 
 ## Running the simulation 
 The simulation can be run with the `sim.run()` method. 
 Parameters are:
-`datetimes` : a `pandas.DatetimeIndex`, the simulation is run over this index. It can for example be created by calling `pandas.date_range(...)` representing time as a human readable format might be limiting the performance, however when writing realistic simulation scenarios, time awareness can probably reduce error sources signifikantly. 
+`datetimes` : a `pandas.DatetimeIndex`, the simulation is run over this index. It can for example be created by calling `pandas.date_range(...)` representing time as a human readable format might be limiting the performance, however when writing realistic simulation scenarios, time awareness can probably reduce error sources significantly. 
 
 # How it works
 When modelling energy systems in python, one might start by implementing models as simple functions or plain procedural code, stepping through time in a four loop.
@@ -207,7 +222,7 @@ To achieve this, each model is assigned a `model._sim_triggers_model` dict. This
 
 # More advanced / other concepts
 ## Independent interfaces
-When modelling controll methods or data infrastructure, one might quickly find time discrete simulation limiting. And even the event discrete simulation, as it is implemented in simplec, might not fullfil all needs for simulation. Therefore one might start implementing custom methods for the models which interact with each other independent of the framework (one could call this agent based).
+When modelling controll methods or data infrastructure, one might quickly find time discrete simulation limiting. And even the event discrete simulation, as it is implemented in SimPlEC, might not fullfil all needs for simulation. Therefore one might start implementing custom methods for the models which interact with each other independent of the framework (one could call this agent based).
 The following example ilustrates a simple example of an interaction between a GridOperator and a SmartMeter:
 ```python
 import pandas as pd
@@ -239,7 +254,7 @@ class GridOperator():
         for smart_meter_model in self.smart_meter_models:
             self.smart_meter_data = smart_meter_model.retrieve_data()
 ```
-To support this style of modelling, simplec provides the `sim.connect_nothing()` method. This method connects no attributes but can be used to maintain the execution order of models, that interact independently of the framework. 
+To support this style of modelling, SimPlEC provides the `sim.connect_nothing()` method. This method connects no attributes but can be used to maintain the execution order of models, that interact independently of the framework. 
 This provides flexibility for modelling in an unintrusive way. 
 The given example models from above would then be connected as such, to ensure, the `SmartMeter` is stepped before the `GridOperator`:
 ```python
@@ -255,12 +270,9 @@ sim.connect_nothing(sm, go)
 times = pandas.date_range('2021-01-01 00:00:00', 
 						  '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 sim.run(times)
-``` 
-# TODO: Make everything consistent!!
-- naming of simplec in text SimPlEC
-- time index: period Index???
+```
 
 # Why another framework?
 - We found other frameworks to be complex for most of our use cases.
-- Network sockets are overkill for most situation. Most interfaces can probably be accessed by python much easier many protocols such as Sunspec or simulation tools such as Ida Ice actually provide python libraries and APIs (no network sockets).
+- Network sockets are overkill for most situations. Most interfaces can probably be accessed by python much easier many protocols such as Sunspec or simulation tools such as Ida Ice actually provide python libraries and APIs (no network sockets).
 
