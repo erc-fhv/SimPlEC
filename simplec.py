@@ -498,7 +498,7 @@ class Simulation():
         self.log.info('Running simulation')
         
         try:
-            for t, time in tqdm.tqdm(enumerate(datetimes), desc='Progress', unit='Steps', maxinterval=60, disable=not self.enable_progress_bar): # add progress bar
+            for t, time in tqdm.tqdm(enumerate(datetimes), total=len(datetimes), desc='Progress', unit='Steps', maxinterval=60, disable=not self.enable_progress_bar): # add progress bar
                 for model in sorted_model_execution_list:
                     # determine if the model needs to be steped in this time step
                     if time >= self._model_next_exec_time[model.name]:
