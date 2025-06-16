@@ -60,6 +60,7 @@ import logging
 import tqdm 
 # from tqdm.contrib.logging import logging_redirect_tqdm
 import inspect
+from pathlib import Path
 
 from matplotlib.patches import FancyBboxPatch, Rectangle
 import matplotlib.cm as cm
@@ -69,12 +70,12 @@ class SimulationError(Exception):
 
 class Simulation():
     def __init__(self, 
-                 output_data_path=None, 
-                 logger_name=None,
-                 enable_progress_bar=True,
-                 time_resolution='sec',
-                 model_first_exec_time_default=pd.to_datetime('1970-01-01 00:00:00+01:00'),
-                 multiinput_symbol='_'
+                 output_data_path : str | None = None, 
+                 logger_name : str | None = None,
+                 enable_progress_bar : bool =True,
+                 time_resolution : str = 'sec',
+                 model_first_exec_time_default : pd.Timestamp = pd.to_datetime('1970-01-01 00:00:00+01:00'),
+                 multiinput_symbol : str = '_'
                  ) -> None:
         '''
         Creates a simulation object
@@ -84,11 +85,17 @@ class Simulation():
         output_data_path : str or None, path for the output pandas.DataFrame to be saved to. The extension specifies the filetype. Options are: '.pkl', '.csv', '.parquet'.
         logger_name : str or None, log some information about the simulation progress if a name is provided (loging needs to be configured, see Python documentation standard library logging) 
         enable_progress_bar : bool show a progress bar while running the simulation (disable for headless use)
-        time_resolution: str, Time resolution / unit of the models.delta_t, default: 'sec', (keyword strings according to pandas.Timedelta)
+        time_resolution : str, Time resolution / unit of the models.delta_t, default: 'sec', (keyword strings according to pandas.Timedelta)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute all models the first time (when using historic value, models get executed at first time step). 
-        multiinput_symbol : str, suffix for model input names, that accept multiple inputs.
+        multiinput_symbol : str, suffix for model input names (default: '_'), that accept multiple inputs (input values ending with this character will be wrapt in a list).
         '''
-        self.output_data_path = output_data_path
+        if output_data_path is not None:
+            # Create data directory if it doesn't exist
+            self.output_data_path = Path(output_data_path)
+            self.output_data_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            self.output_data_path = None
+
         self.time_resolution = time_resolution
         self.model_first_exec_time_default = model_first_exec_time_default
         self.enable_progress_bar = enable_progress_bar
@@ -110,6 +117,7 @@ class Simulation():
         self.model_watch_attributes_index = {} # {model: {inputs: [(attr, index), (attr, index)]}}
 
         self.data = {} # heavy watch values are stored here {attr: {datetime: value}}
+
 
         # # set up the internal values for the model connection handling
         
@@ -526,14 +534,14 @@ class Simulation():
             # Save DataFrame
             if self.model_watch_attributes and self.output_data_path and not self.df.empty:
                 self.log.info(f'Saving output to {self.output_data_path}!')
-                if self.output_data_path.endswith('.pkl'):
+                if self.output_data_path.suffix == '.pkl':
                     self.df.to_pickle(self.output_data_path)
-                elif self.output_data_path.endswith('.csv'):
+                elif self.output_data_path.suffix == '.csv':
                     self.df.to_csv(self.output_data_path)
-                elif self.output_data_path.endswith('.parquet'):
+                elif self.output_data_path.suffix == '.parquet':
                     self.df.to_parquet(self.output_data_path)
                 else:
-                    self.df.to_pickle(self.output_data_path+'.pkl')
+                    self.df.to_pickle(self.output_data_path)
                 
             self.log.info(f'Simulation completed successfully!') 
 

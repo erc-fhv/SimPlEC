@@ -19,3 +19,6 @@ __pycache__/
 .vscode
 simplec_examples/data/*
 .pytest_cache
+
+data/
+experiments/
