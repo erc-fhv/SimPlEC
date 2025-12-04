@@ -5,12 +5,20 @@
 SimPlEC is a Python framework to connect and simulate time discrete and event discrete models.
 
 SimPlEC is currently meant to be used rather as a script than a finished package. Therefore the focus of the framework lays in simplicity. We encourage the user to adapt the framework to their own needs. 
-Many concepts regaridng time and interfaces are based on the cosimulation framework MOSAIK.
+Many concepts regarding time and interfaces are based on the cosimulation framework MOSAIK.
 
 # How to use the framework
 
 ## Installation
-SimPlEC can either be installed with pip using the following command: pip install git+https://github.com/erc-fhv/SimPlEC or simply be cloned/downloaded from this repository.
+
+To reuse SimPlEC either install it with pip
+```bash
+pip install -e git+https://github.com/erc-fhv/SimPlEC
+```
+or clone it from this repository.
+```bash
+git clone git+https://github.com/erc-fhv/SimPlEC
+```
 
 ## Getting Started
 To conduct a simulation with SimPlEC, one needs a number of models and a scenario, where theese models will be connected. 
