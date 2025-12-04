@@ -3,7 +3,12 @@ name: Unit Tests
 on:
   push:
     paths:
-     - '**/*.py'
+      - '**/*.py'
+      - '.github/workflows/*.yml'
+  pull_request:
+    paths:
+      - '**/*.py'
+      - '.github/workflows/*.yml'
 
 jobs:
   test:
