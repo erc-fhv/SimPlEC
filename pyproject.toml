@@ -19,7 +19,8 @@ dependencies = [
     "scipy",
     "pytest",
     "pytest-cov",
-    "pvlib"
+    "pvlib",
+    "ruff"
 ]
 
 [project.urls]
@@ -32,3 +33,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 package-dir = {"" = "src"}
 py-modules = ["simplec"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = []
