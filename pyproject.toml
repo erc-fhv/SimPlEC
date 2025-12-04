@@ -20,7 +20,7 @@ dependencies = [
     "pytest",
     "pytest-cov",
     "pvlib",
-    "ruff"
+    "pylint"
 ]
 
 [project.urls]
@@ -34,10 +34,11 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 py-modules = ["simplec"]
 
-[tool.ruff]
-line-length = 100
-target-version = "py311"
+[tool.pylint.main]
+py-version = "3.11"
 
-[tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = []
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint.messages_control]
+disable = []

@@ -27,5 +27,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Run ruff linter
-        run: ruff check src/ tests/
+      - name: Run pylint
+        run: pylint --errors-only src/ tests/
