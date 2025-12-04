@@ -130,7 +130,7 @@ class Simulation():
 
         # create execution graph (the graph is needed to calculate the model
         # execution order based on the connections between the models)
-        self._G = nx.DiGraph()
+        self.graph = nx.DiGraph()
 
         # setup the data logging capabilities
         self.model_watch_attributes = {}
@@ -165,10 +165,16 @@ class Simulation():
         # model, output not in inner dict if output triggers no models
         self._model_output_triggers_models = {}
 
-        self.log.info(f'Initialized Simulation sucessfully')
+        # Initialize missing member variables
+        self.df: pd.DataFrame
+        self._df_multiindex: pd.MultiIndex
+        self.array: np.ndarray
+
+        self.log.info('Initialized Simulation sucessfully')
 
     def add_model(self, model, watch_values=[], watch_heavy=[]):
-        '''Adds a model to the simulation.
+        '''
+        Adds a model to the simulation.
 
         Parameters
         ----------
@@ -206,13 +212,13 @@ class Simulation():
             {model.name: {output_attr: np.nan
                           for output_attr in model.outputs}})
         # add model to the execution graph
-        self._G.add_node(model)
+        self.graph.add_node(model)
 
         # Add connection and event based attributes
         self._model_input_map[model.name] = {}
         self._model_timedelta_t[model.name] = pd.Timedelta(
-            getattr(model, 'delta_t', np.nan),
-            self.time_resolution)
+            value = getattr(model, 'delta_t', np.nan),
+            unit = self.time_resolution)    # type: ignore
         self.set_model_first_exec_time(
             model, self.model_first_exec_time_default)
 
@@ -231,7 +237,7 @@ class Simulation():
             raise AttributeError(
                 f'Model \'{model.name}\' has no atribute \'inputs\', which is ' +
                 'required for the simulation')
-        if not type(model.inputs) == list:
+        if not isinstance(model.inputs, list):
             raise AttributeError(
                 f'Model \'{model.name}\' \'inputs\' need to be a list of ' +
                 'strings for the simulation to work')
@@ -239,7 +245,7 @@ class Simulation():
             raise AttributeError(
                 f'Model \'{model.name}\' has no atribute \'outputs\', which is ' +
                 'required for the simulation')
-        if not type(model.outputs) == list:
+        if not isinstance(model.outputs, list):
             raise AttributeError(
                 f'Model \'{model.name}\' \'outputs\' need to be a list of ' +
                 'strings for the simulation to work')
@@ -256,8 +262,8 @@ class Simulation():
         step_function_args = list(step_function_params.keys())
         if not step_function_args[0] == 'time':
             raise AttributeError(
-                f'First argument of step function needs to be \'time\' ' +
-                f'(model \'{model.name}\')')
+                "First argument of step function needs to be 'time' " +
+                f"(model '{model.name}')")
         # if variable kwargs in the signature, further checks are useless.
         # proceed at own risk
         if (not any([param.kind == param.VAR_KEYWORD
@@ -265,10 +271,10 @@ class Simulation():
             and not all([inp in step_function_args
                          for inp in model.inputs])):
             raise AttributeError(
-                f'Not all inputs of \'{model.name}\' as specified in ' +
-                '\'model.inputs\' can be found in step function arguments ' +
-                '(make sure all inputs are accepted as keyword arguments, ' +
-                'including variable length kwargs)')
+                f"Not all inputs of '{model.name}' as specified in " +
+                "'model.inputs' can be found in step function arguments " +
+                "(make sure all inputs are accepted as keyword arguments, " +
+                "including variable length kwargs)")
 
     def add_watch_values_to_model(self, model, watch_values: list):
         '''Adds provided inputs and/or outputs to the list of reccorded values.
@@ -361,11 +367,13 @@ class Simulation():
 
 
     def set_model_first_exec_time(self, model, first_exec_time: pd.Timestamp):
+        """Sets the first execution time of a model"""
         self._model_next_exec_time[model.name] = first_exec_time
 
     def connect(self, model1, model2, *connections, time_shifted=False,
                  init_values=None, triggers=[]):
-        '''Connects attribute(s) of model1 to model2
+        """
+        Connects attribute(s) of model1 to model2
 
         Parameters
         ----------
@@ -384,13 +392,13 @@ class Simulation():
             trigger the execution of model2 when the value changes. 'Big'
             items should probably be avoided as triggers for performance
             reasons
-        '''
+        """
         self.models_in_sim(model1, model2)
 
         for connection in connections:  # TODO: refactor!
             # convert to tuple, if str is passed (if input and output have the
             # same 'name', only a string can be passed)
-            if type(connection) == str:
+            if isinstance(connection, str):
                 connection = (connection, connection)
 
             attribute_out, attribute_in = connection
@@ -430,7 +438,7 @@ class Simulation():
                     f"'{model2.name}' '{attribute_in}'")
             else:
                 self._model_input_map[model2.name][attribute_in] = (model1.name, attribute_out)
-            
+
             # initialize time shifted connection (start value)
             if time_shifted:
                 if not init_values or not attribute_out in init_values:
@@ -461,7 +469,7 @@ class Simulation():
                     attribute_out].append(model2)
 
             # Add connection to graph
-            self._G.add_edge(model1, model2, name=connection,
+            self.graph.add_edge(model1, model2, name=connection,
                              time_shifted=time_shifted)
 
         if init_values:
@@ -474,6 +482,8 @@ class Simulation():
                 f'{triggers}')
 
     def connect_constant(self, constant, model, *attributes):
+        """Connects constant value(s) to model input(s)"""
+
         self.models_in_sim(model)
 
         for attr in attributes:
@@ -499,7 +509,7 @@ class Simulation():
         '''
         self.models_in_sim(model1, model2)
         # Add connection to graph
-        self._G.add_edge(model1, model2, name='nothing',
+        self.graph.add_edge(model1, model2, name='nothing',
                          time_shifted=time_shifted)
 
     def models_in_sim(self, *models):
@@ -513,38 +523,38 @@ class Simulation():
                     'sim.add_model(...)')
 
     @staticmethod
-    def _compute_execution_order_from_graph(G):
+    def _compute_execution_order_from_graph(graph):
         '''Computes the models execution order from the initialized nx.graph
         with models at the node and connections between the models represented
         as edges'''
 
         # Prepare execution graph
-        edges_same_time = [(u, v) for u, v, d in G.edges(data=True)
+        edges_same_time = [(u, v) for u, v, d in graph.edges(data=True)
                            if not d['time_shifted']]
-        edges_time_shifted = [(u, v) for u, v, d in G.edges(data=True)
+        edges_time_shifted = [(u, v) for u, v, d in graph.edges(data=True)
                               if d['time_shifted']]
 
-        G_same_time = G.edge_subgraph(edges_same_time)
-        G_time_shifted = G.edge_subgraph(edges_time_shifted)
+        graph_same_time = graph.edge_subgraph(edges_same_time)
+        graph_time_shifted = graph.edge_subgraph(edges_time_shifted)
 
         # check if model connections are feasible (no cyclic connections)
-        if not nx.is_directed_acyclic_graph(G_same_time):
+        if not nx.is_directed_acyclic_graph(graph_same_time):
             raise SimulationError('There must be a cycle in the connections')
 
         # Reverse time shifted edges, to ensue, that models containing input
         # for another model in the next step are steped last.
         # The concept has to be double checked! (Is this needed?)
-        G_direction_check = G_same_time.copy()
-        G_direction_check.add_edges_from([(v, u) for u, v
-                                          in G_time_shifted.edges])
+        graph_direction_check = graph_same_time.copy()
+        graph_direction_check.add_edges_from([(v, u) for u, v
+                                          in graph_time_shifted.edges])
 
-        if not nx.is_directed_acyclic_graph(G_direction_check):
+        if not nx.is_directed_acyclic_graph(graph_direction_check):
             raise SimulationError(
                 'There might be a problem with the time-shifted connections')
 
         # determine model execution order
         # return sorted model execution_list
-        return list(nx.topological_sort(G_direction_check))
+        return list(nx.topological_sort(graph_direction_check))
 
     def _get_model_inputs_from_outputs(self, model):
         '''Get inputs of the model from outputs of the simulation'''
@@ -650,7 +660,7 @@ class Simulation():
                     missing_inputs.remove(model_inp)
                     break
         if missing_inputs:
-            SimulationError(
+            raise SimulationError(
                 f'Not all inputs of model \'{model.name}\' are provided. ' +
                 f'Missing inputs: {missing_inputs}')
 
@@ -662,9 +672,10 @@ class Simulation():
         datetimes : pd.DatetimeIndex specifying the simulation interval and
             steps.
         '''
+
         self.log.info('Preparing simulation...')
         sorted_model_execution_list = (
-            self._compute_execution_order_from_graph(self._G))
+            self._compute_execution_order_from_graph(self.graph))
 
         for model in sorted_model_execution_list:
             self.check_all_model_inputs_provided(
@@ -674,6 +685,10 @@ class Simulation():
 
         # logging and status updates
         self.log.info('Running simulation')
+
+        # init local variables
+        time = pd.Timestamp('1970-01-01 00:00:00+01:00')
+        model = sorted_model_execution_list[0]
 
         try:
             # add progress bar
@@ -707,11 +722,11 @@ class Simulation():
 
         except Exception as e:
             self.log.error(
-                f'Error occured at sim-time \'{time}\' and during the ' +
-                f'processing of model \'{model.name}\'', exc_info=e)
+                "Error occured at sim-time '%s' and during the " +
+                "processing of model '%s'", time, model.name, exc_info=e)
             raise SimulationError(
-                f'Error occured at sim-time \'{time}\' and during the ' +
-                f'processing of model \'{model.name}\'') from e
+                f"Error occured at sim-time '{time}' and during the " +
+                f"processing of model '{model.name}'") from e
         finally:
             # create DataFrame
             if hasattr(self, 'array'):
@@ -720,7 +735,7 @@ class Simulation():
             # Save DataFrame
             if (self.model_watch_attributes and self.output_data_path
                     and not self.df.empty):
-                self.log.info(f'Saving output to {self.output_data_path}!')
+                self.log.info("Saving output to %s!", self.output_data_path)
                 if self.output_data_path.suffix == '.pkl':
                     self.df.to_pickle(self.output_data_path)
                 elif self.output_data_path.suffix == '.csv':
@@ -730,27 +745,26 @@ class Simulation():
                 else:
                     self.df.to_pickle(self.output_data_path)
 
-            self.log.info(f'Simulation completed successfully!')
+            self.log.info('Simulation completed successfully!')
 
     def draw_exec_graph(self):
+        """Draws the execution graph of the simulation using matplotlib"""
+
         plt.figure()
-        pos = nx.spring_layout(self._G)
+        pos = nx.spring_layout(self.graph)
 
         # get the model names for the edges
-        node_labels = {m: m.name for m in self._G.nodes}
+        node_labels = {m: m.name for m in self.graph.nodes}
         # get all edges to assign the color (safer that way)
-        edges = self._G.edges(data=True)
+        edges = self.graph.edges(data=True)
         edge_colors = ["green" if not d['time_shifted'] else "red"
                        for u, v, d in edges]
 
-        nx.draw_networkx(self._G, pos, edgelist=edges,
+        nx.draw_networkx(self.graph, pos, edgelist=edges,
                          edge_color=edge_colors,
                          connectionstyle='arc3, rad = 0.1',
                          labels=node_labels)
 
         plt.show()
 
-
-# todo: implement visualization again (deleted at commit
-# a08d79432da22b1f35bc2167e8697fadcd88f8a5)
-
+# todo: implement visualization again (deleted at commit a08d79432da22b1f35bc2167e8697fadcd88f8a5)
