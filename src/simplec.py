@@ -557,5 +557,6 @@ class Simulation():
 
         plt.show()
 
-#todo: implement visualization again (deleted at commit XXX)
+
+#todo: implement visualization again (deleted at commit a08d79432da22b1f35bc2167e8697fadcd88f8a5)
 
