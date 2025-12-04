@@ -11,8 +11,8 @@ Many concepts regarding time and interfaces are based on the cosimulation framew
 
 | Test Suite   | Status |
 |--------------|--------|
-| Linting      | [![Linting](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg?job=lint)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml) |
-| Unit Tests   | [![Unit Tests](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg?job=test)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml) |
+| Linting      | [![Linting](https://github.com/erc-fhv/SimPlEC/actions/workflows/lint.yml/badge.svg)](https://github.com/erc-fhv/SimPlEC/actions/workflows/lint.yml) |
+| Unit Tests   | [![Unit Tests](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml) |
 
 
 
