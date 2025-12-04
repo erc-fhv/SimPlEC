@@ -1,0 +1,32 @@
+[project]
+name = "simplec"
+version = "0.1.1"
+description = "Simulation Playground for Energy Communities (time discrete and evend discrete cosimulaton)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "Valentin Seiler", email = "valentin.seiler@fhv.at"}]
+license = "MIT"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "numpy",
+    "networkx",
+    "matplotlib",
+    "pandas",
+    "tqdm",
+    "scipy",
+    "pvlib"
+]
+
+[project.urls]
+Homepage = "https://github.com/erc-fhv/SimPlEC"
+
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["simplec"]
