@@ -1,4 +1,6 @@
-[[Hub4FlECs]] 
+[[Hub4FlECs]]
+
+[![Unit Tests](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml)
 
 # Introduction
 
