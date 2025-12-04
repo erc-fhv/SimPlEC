@@ -19,7 +19,7 @@ pip install -e git+https://github.com/erc-fhv/SimPlEC
 ```
 or clone it from this repository.
 ```bash
-git clone git+https://github.com/erc-fhv/SimPlEC
+git clone https://github.com/erc-fhv/SimPlEC
 ```
 
 ## Getting Started
