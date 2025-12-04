@@ -172,7 +172,7 @@ class Simulation():
 
         self.log.info('Initialized Simulation sucessfully')
 
-    def add_model(self, model, watch_values=[], watch_heavy=[]):
+    def add_model(self, model, watch_values=None, watch_heavy=None):
         '''
         Adds a model to the simulation.
 
@@ -200,6 +200,12 @@ class Simulation():
             reccorded but performance might be limited. Only suggested for
             debugging purposes!
         '''
+
+        if watch_values is None:
+            watch_values = []
+        if watch_heavy is None:
+            watch_heavy = []
+
         self._validate_model(model)
 
         # check for duplicate models
@@ -371,7 +377,7 @@ class Simulation():
         self._model_next_exec_time[model.name] = first_exec_time
 
     def connect(self, model1, model2, *connections, time_shifted=False,
-                 init_values=None, triggers=[]):
+                 init_values=None, triggers=None):
         """
         Connects attribute(s) of model1 to model2
 
@@ -393,6 +399,10 @@ class Simulation():
             items should probably be avoided as triggers for performance
             reasons
         """
+
+        if triggers is None:
+            triggers = []
+
         self.models_in_sim(model1, model2)
 
         for connection in connections:  # TODO: refactor!
