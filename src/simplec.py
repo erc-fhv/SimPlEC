@@ -770,7 +770,8 @@ class Simulation():
         edge_colors = ["green" if not d['time_shifted'] else "red"
                        for u, v, d in edges]
 
-        nx.draw_networkx(self.graph, pos, edgelist=edges,
+        nx.draw_networkx(self.graph, pos,
+                         edgelist=edges, # type: ignore
                          edge_color=edge_colors,
                          connectionstyle='arc3, rad = 0.1',
                          labels=node_labels)

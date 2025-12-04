@@ -11,6 +11,10 @@ class LocalWeather():
         # self.altitude  = altitude
 
         self._weather_df = pvlib.iotools.get_pvgis_tmy(self.latitude, self.longitude)[0]
+
+        assert isinstance(self._weather_df, pd.DataFrame), \
+            'weather data could not be loaded properly'
+
         self._weather_df.index = pd.date_range('2021-01-01 00:00:00', '2021-12-31 23:00:00',
             freq='1h', tz='UTC+01:00')
 

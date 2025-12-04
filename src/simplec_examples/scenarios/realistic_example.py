@@ -1,10 +1,10 @@
 import pandas as pd
-from simulation import Simulation
+from simplec import Simulation
 
-from examples.models.building_model import BuildingModel
-from examples.models.heat_pump import HeatPump
-from examples.models.hyst_controller import HystController
-from examples.models.weather_model import LocalWeather
+from simplec_examples.models.building_model import BuildingModel
+from simplec_examples.models.heat_pump import HeatPump
+from simplec_examples.models.hyst_controller import HystController
+from simplec_examples.models.weather_model import LocalWeather
 
 
 sim = Simulation()
@@ -28,7 +28,7 @@ sim.connect(controller, heatpump, ('on', 'on'))
 sim.connect(building, heatpump, ('T_room1', 'T_sink'), time_shifted=True, init_values={'T_room1': 21})
 sim.connect(building, controller, ('T_room1', 'T_is'), time_shifted=True, init_values={'T_room1': 21})
 
-sim.prepare()
+# sim.prepare()
 
 times = pd.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
