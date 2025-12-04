@@ -1,4 +1,4 @@
-from simplec import Simulation
+from src.simplec import Simulation
 import pandas as pd
 import numpy as np
 
