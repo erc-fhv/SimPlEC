@@ -1,5 +1,5 @@
 import pandas as pd
-from src.simplec import Simulation
+from simplec import Simulation
 
 from simplec_examples.models.building_model import BuildingModel
 from simplec_examples.models.heat_pump import HeatPump, HeatPumpEventBased
