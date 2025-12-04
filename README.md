@@ -7,7 +7,7 @@ Many concepts regarding time and interfaces are based on the cosimulation framew
 
 
 
-## GitHub CI Status
+# GitHub CI Status
 
 | Test Suite   | Status |
 |--------------|--------|
