@@ -1,5 +1,3 @@
-[[Hub4FlECs]]
-
 # Introduction
 
 SimPlEC is a Python framework to connect and simulate time discrete and event discrete models.
@@ -7,10 +5,17 @@ SimPlEC is a Python framework to connect and simulate time discrete and event di
 SimPlEC is currently meant to be used rather as a script than a finished package. Therefore the focus of the framework lays in simplicity. We encourage the user to adapt the framework to their own needs.
 Many concepts regarding time and interfaces are based on the cosimulation framework MOSAIK.
 
-The current status of the CI is:
 
-[![Linting](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg?job=lint)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml)
-[![Unit Tests](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg?job=test)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml)
+
+## GitHub CI Status
+
+| Test Suite   | Status |
+|--------------|--------|
+| Linting      | [![Linting](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg?job=lint)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml) |
+| Unit Tests   | [![Unit Tests](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml/badge.svg?job=test)](https://github.com/erc-fhv/SimPlEC/actions/workflows/tests.yml) |
+
+
+
 
 # How to use the framework
 
