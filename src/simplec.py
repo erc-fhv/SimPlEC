@@ -643,7 +643,7 @@ class Simulation():
                     self.array[t, i] = model_inputs[wi]
             if 'outputs' in watch_attr_index:
                 for wo, i in watch_attr_index['outputs']:
-                    self.array[t, i] = model_outputs[wo]
+                    self.array[t, i] = model_outputs.get(wo, np.nan)
 
         # logg heavy data
         if model.name in self.model_heavy_watch_attributes:
