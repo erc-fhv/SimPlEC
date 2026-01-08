@@ -21,14 +21,29 @@ Many concepts regarding time and interfaces are based on the cosimulation framew
 
 ## Installation
 
-To reuse SimPlEC either install it with pip
+To reuse SimPlEC as a package, __install with pip__ from git
 ```bash
-pip install -e git+https://github.com/erc-fhv/SimPlEC
+pip install -e simplec@git+https://github.com/erc-fhv/SimPlEC
 ```
-or clone it from this repository.
-```bash
-git clone https://github.com/erc-fhv/SimPlEC
-```
+
+Alternatively, to setup SimPlEC as a repository, follow these instructions for __Windows__:
+- Clone the repository:
+    ```PowerShell
+    git clone https://github.com/erc-fhv/SimPlEC
+    ```
+- Create a virtual environment (ensure python 3.11 is installed and used):
+    ```PowerShell
+    py -3.11 -m venv .venv
+    ```
+- Activate the venv
+    ```PowerShell
+    .\.venv\Scripts\activate
+    ```
+- Pip install the project in editable mode:
+    ```PowerShell
+    pip install -e .
+    ```
+
 
 ## Getting Started
 To conduct a simulation with SimPlEC, one needs a number of models and a scenario, where theese models will be connected.
