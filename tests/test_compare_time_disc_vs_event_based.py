@@ -18,7 +18,7 @@ def test_compare_time_disc_vs_event_disc():
     sim_event = Simulation()
 
     building   = BuildingModel('building')
-    heatpump   = HeatPumpEventBased('heatpump')
+    heatpump   = HeatPumpEventBased('heatpump', delta_t=None)
     controller = HystController('controller', hyst=1)
     weather    = LocalWeather('weather')
 

@@ -223,8 +223,11 @@ class Simulation():
 
         # Add connection and event based attributes
         self._model_input_map[model.name] = {}
+        # initialize _model_timedelta_t, for event discrete models: delta_t = None 
+        # therefore _model_timedelta_t = NaT which allways compares False 
+        # (Nat >= time), therefore models dont get executed when _model_timedelta_t = NaT
         self._model_timedelta_t[model.name] = pd.Timedelta(
-            value = getattr(model, 'delta_t', np.nan),
+            value = model.delta_t,
             unit = self.time_resolution)    # type: ignore
         self.set_model_first_exec_time(
             model, self.model_first_exec_time_default)
@@ -243,6 +246,11 @@ class Simulation():
             raise AttributeError(
                 f'Model of type \'{type(model)}\' has no attribute name, which ' +
                 'is required for the simulation')
+        if not hasattr(model, 'delta_t'):
+            raise AttributeError(
+                f'Model of type \'{type(model)}\' has no attribute delta_t, which ' +
+                'is required for the simulation '+
+                '(if the model is event based, set delta_t=None)')
         if not hasattr(model, 'inputs'):
             raise AttributeError(
                 f'Model \'{model.name}\' has no atribute \'inputs\', which is ' +
