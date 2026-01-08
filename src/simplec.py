@@ -264,6 +264,12 @@ class Simulation():
             raise AttributeError(
                 f'Model \'{model.name}\' \'step\' not a callable, which is ' +
                 'required for the simulation to work')
+        # Validation of duplicate input and outputs needed for watch values 
+        duplicate_input_outputs = list(set(model.inputs) & set(model.outputs))
+        if duplicate_input_outputs:
+            raise AttributeError(
+                f'Model \'{model.name}\' contains the folowing duplicate value(s) ' +
+                f'in inputs and outputs: {duplicate_input_outputs}')
 
         # parameters of the step function
         step_function_params = inspect.signature(model.step).parameters
@@ -325,6 +331,7 @@ class Simulation():
                 raise SimulationError(
                     f'Non existant input or output {watch_value} of model ' +
                     f'{model.name} cannot be watched')
+            
     def add_heavy_watch_values_to_model(self, model, watch_heavy: list):
         '''Adds provided inputs and/or outputs to the list of reccorded values.
         After complete simulation, the values can be found in sim.data
