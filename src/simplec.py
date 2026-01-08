@@ -231,6 +231,8 @@ class Simulation():
         # Add data logging capabilities
         self.add_watch_values_to_model(model, watch_values)
         self.add_heavy_watch_values_to_model(model, watch_heavy)
+        
+        return model 
 
     def _validate_model(self, model):
         '''Check if model fulfilles the requirements for the simulation otherwise
