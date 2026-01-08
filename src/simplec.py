@@ -53,7 +53,7 @@ sim.connect(model2, model1, ('value_out', 'value_in'), time_shifted=True,
 times = pandas.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00',
                           freq='1min', tz='UTC+01:00')
 
-sim.run(times)
+sim.simulate(times)
 
 outputs of the simulation can then be retrieved by accessing sim.df
 '''
@@ -74,7 +74,7 @@ class SimulationError(Exception):
 
 
 class Simulation():
-    '''Simulation class to connect and run time discrete models'''
+    '''Simulation class to connect and simulate time discrete models'''
 
     def __init__(self,
                  output_data_path: str | None = None,
@@ -96,8 +96,8 @@ class Simulation():
         logger_name : str or None, log some information about the simulation
             progress if a name is provided (loging needs to be configured, see
             Python documentation standard library logging)
-        enable_progress_bar : bool show a progress bar while running the
-            simulation (disable for headless use)
+        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
+        / background use)
         time_resolution : str, Time resolution / unit of the models.delta_t,
             default: 'sec', (keyword strings according to pandas.Timedelta)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute
@@ -688,7 +688,7 @@ class Simulation():
                 f'Not all inputs of model \'{model.name}\' are provided. ' +
                 f'Missing inputs: {missing_inputs}')
 
-    def run(self, datetimes):
+    def simulate(self, datetimes):
         '''Runs the simulation on the index datetimes
 
         Arguments:

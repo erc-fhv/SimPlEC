@@ -88,7 +88,7 @@ sim.connect(model2, model1, ('value_out', 'value_in'),
 times = pandas.date_range('2021-01-01 00:00:00',
 						  '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
-sim.run(times)
+sim.simulate(times)
 ```
 Reccords of the simulation which are specified for each model with the `watch_value` attribute can be retrieved by accessing the pandas dataframe with `sim.df`.
 
@@ -154,7 +154,7 @@ class ExampleModel()
 However we discurage the use of this dynamic creation and suggest to use models as 'scripts' and adujst the code to ones specific need.
 
 ## Running the simulation
-The simulation can be run with the `sim.run()` method.
+The simulation can be run with the `sim.simulate()` method.
 Parameters are:
 `datetimes` : a `pandas.DatetimeIndex`, the simulation is run over this index. It can for example be created by calling `pandas.date_range(...)` representing time as a human readable format might be limiting the performance, however when writing realistic simulation scenarios, time awareness can probably reduce error sources significantly.
 
@@ -302,7 +302,7 @@ sim.connect_nothing(sm, go)
 
 times = pandas.date_range('2021-01-01 00:00:00',
 						  '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
-sim.run(times)
+sim.simulate(times)
 ```
 
 # Why another framework?

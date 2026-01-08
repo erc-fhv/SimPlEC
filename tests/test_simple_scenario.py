@@ -37,7 +37,7 @@ def test_simple_scenario():
 
     times = pd.date_range('2021-01-01 00:00:00', '2021-01-01 00:03:00', freq='1min', tz='UTC+01:00')
 
-    sim.run(times)
+    sim.simulate(times)
 
     expected_output = np.array([[1, 3],
                                 [3, 5],
