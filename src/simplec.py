@@ -302,6 +302,7 @@ class Simulation():
         watch_values : list of str, input and/or output attributes of the model
             to be reccorded
         '''
+        self.models_in_sim(model)
         for watch_value in watch_values:
             # Add model to watched models dict if needed
             # (only add if watch values present!!)
@@ -344,6 +345,7 @@ class Simulation():
         watch_heavy : list of str, input and/or output attributes of the model
             to be reccorded
         '''
+        self.models_in_sim(model)
         for watch_value in watch_heavy:
             # Add model to watched models dict if needed
             # (only add if watch values present!!)
@@ -385,6 +387,7 @@ class Simulation():
 
     def set_model_first_exec_time(self, model, first_exec_time: pd.Timestamp):
         """Sets the first execution time of a model"""
+        self.models_in_sim(model)
         self._model_next_exec_time[model.name] = first_exec_time
 
     def connect(self, model1, model2, *connections, time_shifted=False,
