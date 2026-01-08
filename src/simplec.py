@@ -206,7 +206,8 @@ class Simulation():
         if watch_heavy is None:
             watch_heavy = []
 
-        self._validate_model(model)
+        # validate model structure
+        self.validate_model(model)
 
         # check for duplicate models
         if model.name in self._outputs:
@@ -234,8 +235,9 @@ class Simulation():
         
         return model 
 
-    def _validate_model(self, model):
-        '''Check if model fulfilles the requirements for the simulation otherwise
+    @staticmethod
+    def validate_model(model):
+        '''Check if model fulfills the requirements for the simulation otherwise
         raise Error'''
         if not hasattr(model, 'name'):
             raise AttributeError(
