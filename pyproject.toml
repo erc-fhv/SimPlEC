@@ -27,7 +27,7 @@ dependencies = [
 Homepage = "https://github.com/erc-fhv/SimPlEC"
 
 [build-system]
-requires = ["setuptools >= 77.0.3"]
+requires = ["setuptools >= 77.0.3", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
