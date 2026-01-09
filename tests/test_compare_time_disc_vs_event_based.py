@@ -18,7 +18,7 @@ def test_compare_time_disc_vs_event_disc():
     sim_event = Simulation()
 
     building   = BuildingModel('building')
-    heatpump   = HeatPumpEventBased('heatpump')
+    heatpump   = HeatPumpEventBased('heatpump', delta_t=None)
     controller = HystController('controller', hyst=1)
     weather    = LocalWeather('weather')
 
@@ -41,7 +41,7 @@ def test_compare_time_disc_vs_event_disc():
 
     times = pd.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
-    sim_event.run(times)
+    sim_event.simulate(times)
 
     df_event = sim_event.df
 
@@ -74,7 +74,7 @@ def test_compare_time_disc_vs_event_disc():
 
     times = pd.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
-    sim_discrete.run(times)
+    sim_discrete.simulate(times)
 
     df_discrete = sim_discrete.df
 

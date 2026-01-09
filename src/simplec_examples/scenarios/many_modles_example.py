@@ -41,4 +41,4 @@ for building, heatpump, controller, weather in zip(buildings_list, heatpumps_lis
 times = pd.date_range('2021-01-01 00:00:00', '2021-12-31 23:59:00', freq='1min', tz='UTC+01:00')
 # times = pd.date_range('2021-01-01 00:00:00', '2021-01-02 00:00:00', freq='1min', tz='UTC+01:00')
 
-sim.run(times)
+sim.simulate(times)

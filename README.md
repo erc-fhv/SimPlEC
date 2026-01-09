@@ -1,10 +1,9 @@
 # Introduction
 
-SimPlEC is a Python framework to connect and simulate time discrete and event discrete models.
+SimPlEC (Simulation Playground for Energy Components) is a Python framework to connect and simulate time discrete and event discrete models.
 
 SimPlEC is currently meant to be used rather as a script than a finished package. Therefore the focus of the framework lays in simplicity. We encourage the user to adapt the framework to their own needs.
 Many concepts regarding time and interfaces are based on the cosimulation framework MOSAIK.
-
 
 
 # GitHub CI Status
@@ -88,7 +87,7 @@ sim.connect(model2, model1, ('value_out', 'value_in'),
 times = pandas.date_range('2021-01-01 00:00:00',
 						  '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
-sim.run(times)
+sim.simulate(times)
 ```
 Reccords of the simulation which are specified for each model with the `watch_value` attribute can be retrieved by accessing the pandas dataframe with `sim.df`.
 
@@ -97,7 +96,7 @@ Every model instance needs
 - to have a unique `name` attribute (it makes sense, to pass this to `__init__` if you plan to create more instances of the model class)
 - to implement the `inputs` list, specifying the input attributes of the step function as strings
 - to implement the `outputs` list, specifying the output attributes of the step function as strings
-- to implement the `delta_t` attribute (in seconds) if its a time discrete simulation model
+- to implement the `delta_t` attribute (in seconds), set to None for event discrete models.
 - to implement a step function:
    - The step functions first positional argument needs to be `time`. `time` ist the current simulation timestamp of type `pandas.DateTime`.
    - Further,  all arguments specified in `inputs` need to be accepted as keyword arguments
@@ -154,7 +153,7 @@ class ExampleModel()
 However we discurage the use of this dynamic creation and suggest to use models as 'scripts' and adujst the code to ones specific need.
 
 ## Running the simulation
-The simulation can be run with the `sim.run()` method.
+The simulation can be run with the `sim.simulate()` method.
 Parameters are:
 `datetimes` : a `pandas.DatetimeIndex`, the simulation is run over this index. It can for example be created by calling `pandas.date_range(...)` representing time as a human readable format might be limiting the performance, however when writing realistic simulation scenarios, time awareness can probably reduce error sources significantly.
 
@@ -249,6 +248,7 @@ The input map of each model is computed in the `sim.connect()` method and assign
 As models can have different time resolutions, each iteration, the question arises, if a model should be stepped or not. This is determined by the `delta_t` attribute of the model or if the model is event based by the return value of `next_exec_time`.
 Therefore, an attribute `model._sim_next_exec_time` is assigned to each model. If a model returns a `next_exec_time` this value is used, if not, this value is computed based on the `delta_t`  attribute of the model. With this, we can decide if a model needs to be stepped, if the current simulation time is >= a models `next_exec_time`.
 This implies, that if a model provides the input of another model but the first one is not stepped, the previous output is  retrieved from the `output` dict as input of the latter model.
+For purely event based models that have `delta_t = None` and do not return a `next_exec_time`, the model will never be executed by itself (the comparison against None allwas retruns False) and can only be triggered by other models, as described in the next section.
 ## Triggering attributes for event based models
 For event based simulation, it might be necessary, to trigger a models execution, based on the output of another model. An example could be a heat pump, which is in an off state but should start computing output values, as soon as the controller tells it to start.
 To achieve this, each model is assigned a `model._sim_triggers_model` dict. This dict looks like this: `{'attr_out': [modeltotrigger1, modeltotrigger2]}`. In the simulation loop, this dict is iterated, and a comparison between the previous output and the current output of the model is made for each `attr_out` in the `_sim_triggers_model` dict. If a difference is detected, the models (`[modeltotrigger1, modeltotrigger2]`)  need to be executed as soon as possible but without breaking the execution direction. This is done by setting `modeltotrigger1._sim_next_exec_time` to the current simulation time. Therefore it gets executed in this time step if the connection is not time shifted or executed in the next time step if the connection is time shifted based on the execution direction.
@@ -302,9 +302,11 @@ sim.connect_nothing(sm, go)
 
 times = pandas.date_range('2021-01-01 00:00:00',
 						  '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
-sim.run(times)
+sim.simulate(times)
 ```
 
 # Why another framework?
-- We found other frameworks to be complex for most of our use cases.
-- Network sockets are overkill for most situations. Most interfaces can probably be accessed by python much easier many protocols such as Sunspec or simulation tools such as Ida Ice actually provide python libraries and APIs (no network sockets).
+- We wanted simplicity and as little template code as possible for a mostly pyhton based simulation tool
+- The Mosaik framework served as a very good template but proved to be to complex for most of our use cases
+- A simple method to store data in memory from the simulation API was missing. Preallocated storage makes the simulation very fast (profiling showed this to be the bottleneck)
+- We think that network sockets are overkill for most situations. Most interfaces can probably be implemented by python much easier, many protocols such as Sunspec or simulation tools such as Ida Ice actually provide python libraries and APIs.

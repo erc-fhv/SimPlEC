@@ -53,7 +53,7 @@ sim.connect(model2, model1, ('value_out', 'value_in'), time_shifted=True,
 times = pandas.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00',
                           freq='1min', tz='UTC+01:00')
 
-sim.run(times)
+sim.simulate(times)
 
 outputs of the simulation can then be retrieved by accessing sim.df
 '''
@@ -74,7 +74,7 @@ class SimulationError(Exception):
 
 
 class Simulation():
-    '''Simulation class to connect and run time discrete models'''
+    '''Simulation class to connect and simulate time discrete models'''
 
     def __init__(self,
                  output_data_path: str | None = None,
@@ -96,8 +96,8 @@ class Simulation():
         logger_name : str or None, log some information about the simulation
             progress if a name is provided (loging needs to be configured, see
             Python documentation standard library logging)
-        enable_progress_bar : bool show a progress bar while running the
-            simulation (disable for headless use)
+        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
+        / background use)
         time_resolution : str, Time resolution / unit of the models.delta_t,
             default: 'sec', (keyword strings according to pandas.Timedelta)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute
@@ -206,7 +206,8 @@ class Simulation():
         if watch_heavy is None:
             watch_heavy = []
 
-        self._validate_model(model)
+        # validate model structure
+        self.validate_model(model)
 
         # check for duplicate models
         if model.name in self._outputs:
@@ -222,8 +223,11 @@ class Simulation():
 
         # Add connection and event based attributes
         self._model_input_map[model.name] = {}
+        # initialize _model_timedelta_t, for event discrete models: delta_t = None 
+        # therefore _model_timedelta_t = NaT which allways compares False 
+        # (Nat >= time), therefore models dont get executed when _model_timedelta_t = NaT
         self._model_timedelta_t[model.name] = pd.Timedelta(
-            value = getattr(model, 'delta_t', np.nan),
+            value = model.delta_t,
             unit = self.time_resolution)    # type: ignore
         self.set_model_first_exec_time(
             model, self.model_first_exec_time_default)
@@ -231,14 +235,22 @@ class Simulation():
         # Add data logging capabilities
         self.add_watch_values_to_model(model, watch_values)
         self.add_heavy_watch_values_to_model(model, watch_heavy)
+        
+        return model 
 
-    def _validate_model(self, model):
-        '''Check if model fulfilles the requirements for the simulation otherwise
+    @staticmethod
+    def validate_model(model):
+        '''Check if model fulfills the requirements for the simulation otherwise
         raise Error'''
         if not hasattr(model, 'name'):
             raise AttributeError(
                 f'Model of type \'{type(model)}\' has no attribute name, which ' +
                 'is required for the simulation')
+        if not hasattr(model, 'delta_t'):
+            raise AttributeError(
+                f'Model of type \'{type(model)}\' has no attribute delta_t, which ' +
+                'is required for the simulation '+
+                '(if the model is event based, set delta_t=None)')
         if not hasattr(model, 'inputs'):
             raise AttributeError(
                 f'Model \'{model.name}\' has no atribute \'inputs\', which is ' +
@@ -262,6 +274,12 @@ class Simulation():
             raise AttributeError(
                 f'Model \'{model.name}\' \'step\' not a callable, which is ' +
                 'required for the simulation to work')
+        # Validation of duplicate input and outputs needed for watch values 
+        duplicate_input_outputs = list(set(model.inputs) & set(model.outputs))
+        if duplicate_input_outputs:
+            raise AttributeError(
+                f'Model \'{model.name}\' contains the folowing duplicate value(s) ' +
+                f'in inputs and outputs: {duplicate_input_outputs}')
 
         # parameters of the step function
         step_function_params = inspect.signature(model.step).parameters
@@ -292,6 +310,7 @@ class Simulation():
         watch_values : list of str, input and/or output attributes of the model
             to be reccorded
         '''
+        self.models_in_sim(model)
         for watch_value in watch_values:
             # Add model to watched models dict if needed
             # (only add if watch values present!!)
@@ -323,6 +342,7 @@ class Simulation():
                 raise SimulationError(
                     f'Non existant input or output {watch_value} of model ' +
                     f'{model.name} cannot be watched')
+            
     def add_heavy_watch_values_to_model(self, model, watch_heavy: list):
         '''Adds provided inputs and/or outputs to the list of reccorded values.
         After complete simulation, the values can be found in sim.data
@@ -333,6 +353,7 @@ class Simulation():
         watch_heavy : list of str, input and/or output attributes of the model
             to be reccorded
         '''
+        self.models_in_sim(model)
         for watch_value in watch_heavy:
             # Add model to watched models dict if needed
             # (only add if watch values present!!)
@@ -374,6 +395,7 @@ class Simulation():
 
     def set_model_first_exec_time(self, model, first_exec_time: pd.Timestamp):
         """Sets the first execution time of a model"""
+        self.models_in_sim(model)
         self._model_next_exec_time[model.name] = first_exec_time
 
     def connect(self, model1, model2, *connections, time_shifted=False,
@@ -674,7 +696,7 @@ class Simulation():
                 f'Not all inputs of model \'{model.name}\' are provided. ' +
                 f'Missing inputs: {missing_inputs}')
 
-    def run(self, datetimes):
+    def simulate(self, datetimes):
         '''Runs the simulation on the index datetimes
 
         Arguments:

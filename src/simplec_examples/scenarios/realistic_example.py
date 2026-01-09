@@ -32,4 +32,4 @@ sim.connect(building, controller, ('T_room1', 'T_is'), time_shifted=True, init_v
 
 times = pd.date_range('2021-01-01 00:00:00', '2021-01-03 00:00:00', freq='1min', tz='UTC+01:00')
 
-sim.run(times)
+sim.simulate(times)
