@@ -77,46 +77,25 @@ class Simulation():
     '''Simulation class to connect and simulate time discrete models'''
 
     def __init__(self,
-                 output_data_path: str | None = None,
-                 logger_name: str | None = None,
-                 enable_progress_bar: bool = True,
-                 time_resolution: str = 'sec',
-                 model_first_exec_time_default:
-                    pd.Timestamp = pd.to_datetime('1970-01-01 00:00:00+01:00'),
-                 multiinput_symbol: str = '_'
-                 ) -> None:
+                logger_name: str | None = None,
+                time_resolution: str = 'sec',
+                multiinput_symbol: str = '_'
+                ) -> None:
         '''
         Creates a simulation object
 
-        Parameters
+        Parameter
         ----------
-        output_data_path : str or None, path for the output pandas.DataFrame to be
-            saved to. The extension specifies the filetype. Options are: '.pkl',
-            '.csv', '.parquet'.
         logger_name : str or None, log some information about the simulation
             progress if a name is provided (loging needs to be configured, see
             Python documentation standard library logging)
-        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
-        / background use)
         time_resolution : str, Time resolution / unit of the models.delta_t,
             default: 'sec', (keyword strings according to pandas.Timedelta)
-        model_first_exec_time_default : pd.DateTime, Simulation-time to execute
-            all models the first time (when using historic value, models get
-            executed at first time step).
         multiinput_symbol : str, suffix for model input names (default: '_'),
             that accept multiple inputs (input values ending with this character
             will be wrapt in a list).
         '''
-        if output_data_path is not None:
-            # Create data directory if it doesn't exist
-            self.output_data_path = Path(output_data_path)
-            self.output_data_path.parent.mkdir(parents=True, exist_ok=True)
-        else:
-            self.output_data_path = None
-
         self.time_resolution = time_resolution
-        self.model_first_exec_time_default = model_first_exec_time_default
-        self.enable_progress_bar = enable_progress_bar
         self.multiinput_symbol = multiinput_symbol
 
         # set up a logger
@@ -229,8 +208,6 @@ class Simulation():
         self._model_timedelta_t[model.name] = pd.Timedelta(
             value = model.delta_t,
             unit = self.time_resolution)    # type: ignore
-        self.set_model_first_exec_time(
-            model, self.model_first_exec_time_default)
 
         # Add data logging capabilities
         self.add_watch_values_to_model(model, watch_values)
@@ -696,18 +673,46 @@ class Simulation():
                 f'Not all inputs of model \'{model.name}\' are provided. ' +
                 f'Missing inputs: {missing_inputs}')
 
-    def simulate(self, datetimes):
-        '''Runs the simulation on the index datetimes
+    def simulate(self, datetimes,
+                 output_data_path: str | None = None,
+                 enable_progress_bar: bool = True,
+                 model_first_exec_time_default:
+                    pd.Timestamp = pd.to_datetime('1970-01-01 00:00:00+01:00')):
+        '''Runs the simulation
 
-        Arguments:
+        Parameter
         ---------
         datetimes : pd.DatetimeIndex specifying the simulation interval and
             steps.
+        output_data_path : str or None, path for the output pandas.DataFrame to be
+            saved to. The extension specifies the filetype. Options are: '.pkl',
+            '.csv', '.parquet'.
+        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
+        / background use)
+        model_first_exec_time_default : pd.DateTime, Simulation-time to execute
+            all models the first time (when using historic value, models get
+            executed at first time step).
         '''
+
+        # set per-run options (moved from __init__ to simulate)
+        if output_data_path is not None:
+            self.output_data_path = Path(output_data_path)
+            self.output_data_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            self.output_data_path = None
+
+        self.enable_progress_bar = enable_progress_bar
+        self.model_first_exec_time_default = model_first_exec_time_default
 
         self.log.info('Preparing simulation...')
         sorted_model_execution_list = (
             self._compute_execution_order_from_graph(self.graph))
+
+        # initialize model first execution times for this run
+        # Do not overwrite values that were manually set prior to running
+        for model in sorted_model_execution_list:
+            if model.name not in self._model_next_exec_time:
+                self.set_model_first_exec_time(model, self.model_first_exec_time_default)
 
         for model in sorted_model_execution_list:
             self.check_all_model_inputs_provided(

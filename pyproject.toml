@@ -1,6 +1,6 @@
 [project]
 name = "simplec"
-version = "0.1.1"
+dynamic = ["version"]
 description = "Simulation Playground for Energy Communities (time discrete and evend discrete cosimulaton)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,11 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 py-modules = ["simplec"]
 
+# Automatically infere version from git tag
+[tool.setuptools_scm]
+version_scheme = "release-branch-semver"
+local_scheme = "no-local-version"
+
 [tool.pylint.main]
 py-version = "3.11"
 
@@ -42,3 +47,4 @@ max-line-length = 100
 
 [tool.pylint.messages_control]
 disable = []
+
