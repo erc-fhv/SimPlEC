@@ -84,21 +84,13 @@ class Simulation():
         '''
         Creates a simulation object
 
-        Parameters
+        Parameter
         ----------
-        output_data_path : str or None, path for the output pandas.DataFrame to be
-            saved to. The extension specifies the filetype. Options are: '.pkl',
-            '.csv', '.parquet'.
         logger_name : str or None, log some information about the simulation
             progress if a name is provided (loging needs to be configured, see
             Python documentation standard library logging)
-        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
-        / background use)
         time_resolution : str, Time resolution / unit of the models.delta_t,
             default: 'sec', (keyword strings according to pandas.Timedelta)
-        model_first_exec_time_default : pd.DateTime, Simulation-time to execute
-            all models the first time (when using historic value, models get
-            executed at first time step).
         multiinput_symbol : str, suffix for model input names (default: '_'),
             that accept multiple inputs (input values ending with this character
             will be wrapt in a list).
@@ -686,12 +678,20 @@ class Simulation():
                  enable_progress_bar: bool = True,
                  model_first_exec_time_default:
                     pd.Timestamp = pd.to_datetime('1970-01-01 00:00:00+01:00')):
-        '''Runs the simulation on the index datetimes
+        '''Runs the simulation
 
-        Arguments:
+        Parameter
         ---------
         datetimes : pd.DatetimeIndex specifying the simulation interval and
             steps.
+        output_data_path : str or None, path for the output pandas.DataFrame to be
+            saved to. The extension specifies the filetype. Options are: '.pkl',
+            '.csv', '.parquet'.
+        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
+        / background use)
+        model_first_exec_time_default : pd.DateTime, Simulation-time to execute
+            all models the first time (when using historic value, models get
+            executed at first time step).
         '''
 
         # set per-run options (moved from __init__ to simulate)
