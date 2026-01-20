@@ -59,6 +59,8 @@ outputs of the simulation can then be retrieved by accessing sim.df
 '''
 
 from pathlib import Path
+import datetime
+import sys
 from copy import copy
 import logging
 import inspect
@@ -674,6 +676,7 @@ class Simulation():
                 f'Missing inputs: {missing_inputs}')
 
     def simulate(self, datetimes,
+                 sub_scenario_name: str | None = None,
                  output_data_path: str | None = None,
                  enable_progress_bar: bool = True,
                  model_first_exec_time_default:
@@ -684,9 +687,13 @@ class Simulation():
         ---------
         datetimes : pd.DatetimeIndex specifying the simulation interval and
             steps.
+        sub_scenario_name : str on None, if provided, the output data is saved automatically
+            like this: `./data/output/scenario_name/sub_scenario_name/timestamp.parquet`. 
+            The scenario name is created from the scenario file name. 
+            This is not tested for multiprocessing!
         output_data_path : str or None, path for the output pandas.DataFrame to be
-            saved to. The extension specifies the filetype. Options are: '.pkl',
-            '.csv', '.parquet'.
+            saved to. If provided, the sub_scenario_name is ignored. 
+            The extension specifies the filetype. Options are: '.pkl', '.csv', '.parquet'.
         enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
         / background use)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute
@@ -697,6 +704,13 @@ class Simulation():
         # set per-run options (moved from __init__ to simulate)
         if output_data_path is not None:
             self.output_data_path = Path(output_data_path)
+            self.output_data_path.parent.mkdir(parents=True, exist_ok=True)
+        elif sub_scenario_name is not None:
+            self.output_data_path = Path(
+                f'data/output/'
+                f'{sys.modules["__main__"]}/'
+                f'{sub_scenario_name}/{datetime.datetime.now().strftime("%Y%m%d_%H%M")}.parquet'
+                )
             self.output_data_path.parent.mkdir(parents=True, exist_ok=True)
         else:
             self.output_data_path = None
