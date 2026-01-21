@@ -79,7 +79,8 @@ class Simulation():
     def __init__(self,
                 logger_name: str | None = None,
                 time_resolution: str = 'sec',
-                multiinput_symbol: str = '_'
+                multiinput_symbol: str = '_',
+                multiinput_dict_symbol: str = '_dict'
                 ) -> None:
         '''
         Creates a simulation object
@@ -92,11 +93,15 @@ class Simulation():
         time_resolution : str, Time resolution / unit of the models.delta_t,
             default: 'sec', (keyword strings according to pandas.Timedelta)
         multiinput_symbol : str, suffix for model input names (default: '_'),
-            that accept multiple inputs (input values ending with this character
-            will be wrapt in a list).
+            that accept multiple inputs. Input values ending with this character
+            will be wrapt in a list.
+        multiinput_dict_symbol : str, suffix for model input names (default: '_dict'),
+            that accept multiple inputs. Input values ending with this character
+            will be wrapt in a dict with the input model name as key.
         '''
         self.time_resolution = time_resolution
         self.multiinput_symbol = multiinput_symbol
+        self.multiinput_dict_symbol = multiinput_dict_symbol
 
         # set up a logger
         self.log = logging.getLogger(logger_name)
@@ -202,8 +207,8 @@ class Simulation():
 
         # Add connection and event based attributes
         self._model_input_map[model.name] = {}
-        # initialize _model_timedelta_t, for event discrete models: delta_t = None 
-        # therefore _model_timedelta_t = NaT which allways compares False 
+        # initialize _model_timedelta_t, for event discrete models: delta_t = None
+        # therefore _model_timedelta_t = NaT which allways compares False
         # (Nat >= time), therefore models dont get executed when _model_timedelta_t = NaT
         self._model_timedelta_t[model.name] = pd.Timedelta(
             value = model.delta_t,
@@ -212,8 +217,8 @@ class Simulation():
         # Add data logging capabilities
         self.add_watch_values_to_model(model, watch_values)
         self.add_heavy_watch_values_to_model(model, watch_heavy)
-        
-        return model 
+
+        return model
 
     @staticmethod
     def validate_model(model):
@@ -251,7 +256,7 @@ class Simulation():
             raise AttributeError(
                 f'Model \'{model.name}\' \'step\' not a callable, which is ' +
                 'required for the simulation to work')
-        # Validation of duplicate input and outputs needed for watch values 
+        # Validation of duplicate input and outputs needed for watch values
         duplicate_input_outputs = list(set(model.inputs) & set(model.outputs))
         if duplicate_input_outputs:
             raise AttributeError(
@@ -310,7 +315,8 @@ class Simulation():
                     watch_value)
                 input_or_output = True
 
-            if watch_value.endswith(self.multiinput_symbol):
+            if (watch_value.endswith(self.multiinput_symbol)
+                or watch_value.endswith(self.multiinput_dict_symbol)):
                 raise SimulationError(
                     f'Multiinput {watch_value} of model {model.name} cannot ' +
                     'be watched, consider watching individual model outputs.')
@@ -319,7 +325,8 @@ class Simulation():
                 raise SimulationError(
                     f'Non existant input or output {watch_value} of model ' +
                     f'{model.name} cannot be watched')
-            
+
+    # TODO: Those two methods could be unified or made less redundant
     def add_heavy_watch_values_to_model(self, model, watch_heavy: list):
         '''Adds provided inputs and/or outputs to the list of reccorded values.
         After complete simulation, the values can be found in sim.data
@@ -359,7 +366,8 @@ class Simulation():
                 self.data[(model.name, 'outputs', watch_value)] = {}
                 input_or_output = True
 
-            if watch_value.endswith(self.multiinput_symbol):
+            if (watch_value.endswith(self.multiinput_symbol)
+                or watch_value.endswith(self.multiinput_dict_symbol)):
                 raise SimulationError(
                     f'Multiinput {watch_value} of model {model.name} cannot ' +
                     'be watched, consider watching individual model outputs.')
@@ -427,7 +435,8 @@ class Simulation():
                     f'\'{model2.name}\'')
 
             # fill self._model_input_map[model2.name]
-            if attribute_in.endswith(self.multiinput_symbol):
+            if (attribute_in.endswith(self.multiinput_symbol) or
+                attribute_in.endswith(self.multiinput_dict_symbol)):
                 if attribute_in in self._model_input_map[model2.name]:
                     if (model1.name, attribute_out) in \
                         self._model_input_map[model2.name][attribute_in]:
@@ -575,6 +584,11 @@ class Simulation():
                 for output_model_name, output_attr in output_model_and_attr:
                     inputs[input_key].append(
                         self._outputs[output_model_name][output_attr])
+            elif input_key.endswith(self.multiinput_dict_symbol):  # multiinput_dict
+                inputs[input_key] = {}
+                for output_model_name, output_attr in output_model_and_attr:
+                    inputs[input_key][output_model_name] = \
+                        self._outputs[output_model_name][output_attr]
             else:
                 output_model_name, output_attr = output_model_and_attr
                 inputs[input_key] = (
@@ -687,7 +701,7 @@ class Simulation():
         output_data_path : str or None, path for the output pandas.DataFrame to be
             saved to. The extension specifies the filetype. Options are: '.pkl',
             '.csv', '.parquet'.
-        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
+        enable_progress_bar : bool show a progress bar while simulateing (disable for headless
         / background use)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute
             all models the first time (when using historic value, models get
