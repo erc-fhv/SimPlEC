@@ -79,7 +79,9 @@ class Simulation():
     def __init__(self,
                 logger_name: str | None = None,
                 time_resolution: str = 'sec',
-                multiinput_symbol: str = '_'
+                multiinput_symbol: str = '_',
+                multiinput_dict_symbol: str = '_dict',
+                multioutput_dict_symbol: str = '_dict'
                 ) -> None:
         '''
         Creates a simulation object
@@ -92,11 +94,19 @@ class Simulation():
         time_resolution : str, Time resolution / unit of the models.delta_t,
             default: 'sec', (keyword strings according to pandas.Timedelta)
         multiinput_symbol : str, suffix for model input names (default: '_'),
-            that accept multiple inputs (input values ending with this character
-            will be wrapt in a list).
+            that accept multiple inputs. Input values ending with this character
+            will be wrapt in a list.
+        multiinput_dict_symbol : str, suffix for model input names (default: '_dict'),
+            that accept multiple inputs. Input values ending with this character
+            will be wrapt in a dict with the output model (the sender of that input) name as key.
+        multioutput_dict_symbol : str, suffix for model output names (default: '_dict'),
+            that return multiple outputs. Output values ending with this character
+            need to return a dict with the input model (the recipient of that output) name as key.
         '''
         self.time_resolution = time_resolution
         self.multiinput_symbol = multiinput_symbol
+        self.multiinput_dict_symbol = multiinput_dict_symbol
+        self.multioutput_dict_symbol = multioutput_dict_symbol
 
         # set up a logger
         self.log = logging.getLogger(logger_name)
@@ -202,8 +212,8 @@ class Simulation():
 
         # Add connection and event based attributes
         self._model_input_map[model.name] = {}
-        # initialize _model_timedelta_t, for event discrete models: delta_t = None 
-        # therefore _model_timedelta_t = NaT which allways compares False 
+        # initialize _model_timedelta_t, for event discrete models: delta_t = None
+        # therefore _model_timedelta_t = NaT which allways compares False
         # (Nat >= time), therefore models dont get executed when _model_timedelta_t = NaT
         self._model_timedelta_t[model.name] = pd.Timedelta(
             value = model.delta_t,
@@ -212,8 +222,8 @@ class Simulation():
         # Add data logging capabilities
         self.add_watch_values_to_model(model, watch_values)
         self.add_heavy_watch_values_to_model(model, watch_heavy)
-        
-        return model 
+
+        return model
 
     @staticmethod
     def validate_model(model):
@@ -251,7 +261,7 @@ class Simulation():
             raise AttributeError(
                 f'Model \'{model.name}\' \'step\' not a callable, which is ' +
                 'required for the simulation to work')
-        # Validation of duplicate input and outputs needed for watch values 
+        # Validation of duplicate input and outputs needed for watch values
         duplicate_input_outputs = list(set(model.inputs) & set(model.outputs))
         if duplicate_input_outputs:
             raise AttributeError(
@@ -297,29 +307,34 @@ class Simulation():
             input_or_output = False
 
             if watch_value in model.inputs:
+                if (watch_value.endswith(self.multiinput_symbol)
+                or watch_value.endswith(self.multiinput_dict_symbol)):
+                    raise SimulationError(
+                        f'Multiinput {watch_value} of model {model.name} cannot ' +
+                        'be watched, consider watching individual model outputs.')
                 if not 'inputs' in self.model_watch_attributes[model.name]:
                     self.model_watch_attributes[model.name]['inputs'] = []
-                self.model_watch_attributes[model.name]['inputs'].append(
-                    watch_value)
+                    self.model_watch_attributes[model.name]['inputs'].append(
+                        watch_value)
                 input_or_output = True
 
             if watch_value in model.outputs:
+                if watch_value.endswith(self.multioutput_dict_symbol):
+                    raise SimulationError(
+                        f'Multioutput {watch_value} of model {model.name} cannot ' +
+                        'be watched, consider watching individual model inputs.')
                 if not 'outputs' in self.model_watch_attributes[model.name]:
                     self.model_watch_attributes[model.name]['outputs'] = []
                 self.model_watch_attributes[model.name]['outputs'].append(
                     watch_value)
                 input_or_output = True
 
-            if watch_value.endswith(self.multiinput_symbol):
-                raise SimulationError(
-                    f'Multiinput {watch_value} of model {model.name} cannot ' +
-                    'be watched, consider watching individual model outputs.')
-
             if not input_or_output:
                 raise SimulationError(
                     f'Non existant input or output {watch_value} of model ' +
                     f'{model.name} cannot be watched')
-            
+
+    # TODO: Those two methods could be unified or made less redundant
     def add_heavy_watch_values_to_model(self, model, watch_heavy: list):
         '''Adds provided inputs and/or outputs to the list of reccorded values.
         After complete simulation, the values can be found in sim.data
@@ -340,6 +355,11 @@ class Simulation():
             input_or_output = False
 
             if watch_value in model.inputs:
+                if (watch_value.endswith(self.multiinput_symbol)
+                    or watch_value.endswith(self.multiinput_dict_symbol)):
+                    raise SimulationError(
+                        f'Multiinput {watch_value} of model {model.name} cannot ' +
+                        'be watched, consider watching individual model outputs.')
                 if not 'inputs' in (
                         self.model_heavy_watch_attributes[model.name]):
                     self.model_heavy_watch_attributes[
@@ -359,10 +379,7 @@ class Simulation():
                 self.data[(model.name, 'outputs', watch_value)] = {}
                 input_or_output = True
 
-            if watch_value.endswith(self.multiinput_symbol):
-                raise SimulationError(
-                    f'Multiinput {watch_value} of model {model.name} cannot ' +
-                    'be watched, consider watching individual model outputs.')
+
 
             if not input_or_output:
                 raise SimulationError(
@@ -427,7 +444,8 @@ class Simulation():
                     f'\'{model2.name}\'')
 
             # fill self._model_input_map[model2.name]
-            if attribute_in.endswith(self.multiinput_symbol):
+            if (attribute_in.endswith(self.multiinput_symbol) or
+                attribute_in.endswith(self.multiinput_dict_symbol)):
                 if attribute_in in self._model_input_map[model2.name]:
                     if (model1.name, attribute_out) in \
                         self._model_input_map[model2.name][attribute_in]:
@@ -565,6 +583,12 @@ class Simulation():
         # return sorted model execution_list
         return list(nx.topological_sort(graph_direction_check))
 
+    def _get_model_output_for_model(self, output_model_name, output_attr, input_model_name):
+        if not output_attr.endswith(self.multioutput_dict_symbol):
+            return self._outputs[output_model_name][output_attr]
+        else:
+            return self._outputs[output_model_name][output_attr].get(input_model_name, np.nan)
+
     def _get_model_inputs_from_outputs(self, model):
         '''Get inputs of the model from outputs of the simulation'''
         inputs = {}
@@ -574,11 +598,22 @@ class Simulation():
                 inputs[input_key] = []
                 for output_model_name, output_attr in output_model_and_attr:
                     inputs[input_key].append(
-                        self._outputs[output_model_name][output_attr])
+                        self._get_model_output_for_model(
+                            output_model_name, output_attr, model.name
+                            ))
+            elif input_key.endswith(self.multiinput_dict_symbol):  # multiinput_dict
+                inputs[input_key] = {}
+                for output_model_name, output_attr in output_model_and_attr:
+                    inputs[input_key][output_model_name] = \
+                        self._get_model_output_for_model(
+                            output_model_name, output_attr, model.name
+                            )
             else:
                 output_model_name, output_attr = output_model_and_attr
-                inputs[input_key] = (
-                    self._outputs[output_model_name][output_attr])
+                inputs[input_key] = \
+                    self._get_model_output_for_model(
+                            output_model_name, output_attr, model.name
+                            )
         return inputs
 
     def _initialize_watch_value_dataframe(self, datetimes):
@@ -687,7 +722,7 @@ class Simulation():
         output_data_path : str or None, path for the output pandas.DataFrame to be
             saved to. The extension specifies the filetype. Options are: '.pkl',
             '.csv', '.parquet'.
-        enable_progress_bar : bool show a progress bar while simulateing (disable for headless 
+        enable_progress_bar : bool show a progress bar while simulateing (disable for headless
         / background use)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute
             all models the first time (when using historic value, models get
