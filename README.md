@@ -139,7 +139,7 @@ class ExampleModel()
         ...
 ```
 The order of the list is not guaranteed to follow any logic and using this feature only really makes sense, if the order does not matter and the values get agregated (e.g. summed or averaged).
-Another option is, to specify an input attribute ending with an underscore and the keyword dict '\_dict' such as 'P_el_dict', then SimPlEC wraps the input attributes into a dict with the ouput models name as a key.
+Another option is, to specify an input attribute ending with an underscore and the keyword dict '\_dict' such as `P_el_dict´, then SimPlEC wraps the input attributes into a dict with the ouput models name as a key.
 The preffered method is however, to adjust the models, to explicitly accept theese inputs individually, as this avoids nested structures of inputs and outputs.
 If you want to change the number of Inputs parametrically, you can adjust the models `__init__` so that the number of inputs can be changed dynamically on creation for example as such
 ```python
@@ -152,6 +152,8 @@ class ExampleModel()
 		...
 ```
 However we discurage the use of this dynamic creation and suggest to use models as 'scripts' and adujst the code to ones specific need.
+Connecting several models to one output:
+Generaly, connecting several models to one single output is no problem. however, when there are multiple ouptuts of the same attribute for individual modles, the code can get complex quickly. Therefore, the option exists, to wrap multiple outputs in a dict. When an output attribute of a model ends with `_dict`, SimPlEC expects a dictionarry as output for that attribute, which has the recipients model name as a key. If the value for a specific model is not provided, np.nan is passed to the model. This feature is particularly usefull in combination with input attribute dicts, explained above.
 
 ## Running the simulation
 The simulation can be run with the `sim.simulate()` method.
