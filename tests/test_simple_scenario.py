@@ -47,3 +47,46 @@ def test_simple_scenario():
     assert sim.df.index[0] == pd.to_datetime('2021-01-01 00:00:00+01:00'), 'index seems to be off'
     assert sim.df.columns[0] == ('example_1', 'inputs', 'value_in'), \
         'columns of dateframe seem to be off'
+
+
+def test_watch_two_inputs_same_model():
+    class SourceModel():
+        inputs = []
+        outputs = ['out']
+        delta_t = 60
+
+        def __init__(self, name, value):
+            self.name = name
+            self.value = value
+
+        def step(self, time) -> dict:
+            return {'out': self.value}
+
+    class SinkModel():
+        inputs = ['in1', 'in2']
+        outputs = ['sum_out']
+        delta_t = 60
+
+        def __init__(self, name):
+            self.name = name
+
+        def step(self, time, in1, in2) -> dict:
+            return {'sum_out': in1 + in2}
+
+    sim = Simulation()
+    src1 = SourceModel('src1', 2)
+    src2 = SourceModel('src2', 3)
+    sink = SinkModel('sink')
+
+    sim.add_model(src1)
+    sim.add_model(src2)
+    sim.add_model(sink, watch_values=['in1', 'in2'])
+
+    sim.connect(src1, sink, ('out', 'in1'))
+    sim.connect(src2, sink, ('out', 'in2'))
+
+    times = pd.date_range('2021-01-01 00:00:00', '2021-01-01 00:01:00', freq='1min', tz='UTC+01:00')
+    sim.simulate(times, enable_progress_bar=False)
+
+    assert ('sink', 'inputs', 'in1') in sim.df.columns
+    assert ('sink', 'inputs', 'in2') in sim.df.columns

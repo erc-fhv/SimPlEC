@@ -314,8 +314,8 @@ class Simulation():
                         'be watched, consider watching individual model outputs.')
                 if not 'inputs' in self.model_watch_attributes[model.name]:
                     self.model_watch_attributes[model.name]['inputs'] = []
-                    self.model_watch_attributes[model.name]['inputs'].append(
-                        watch_value)
+                self.model_watch_attributes[model.name]['inputs'].append(
+                    watch_value)
                 input_or_output = True
 
             if watch_value in model.outputs:
