@@ -38,7 +38,7 @@ def test_missing_inputs_attr_raises():
 			return {'out': None}
 
 	sim = Simulation()
-	with pytest.raises(AttributeError, match="no atribute 'inputs'"):
+	with pytest.raises(AttributeError, match="no attribute 'inputs'"):
 		sim.validate_model(Model())
 
 
@@ -67,7 +67,7 @@ def test_missing_outputs_attr_raises():
 			return {}
 
 	sim = Simulation()
-	with pytest.raises(AttributeError, match="no atribute 'outputs'"):
+	with pytest.raises(AttributeError, match="no attribute 'outputs'"):
 		sim.validate_model(Model())
 
 
@@ -122,7 +122,7 @@ def test_duplicate_input_output_raises():
 			return {'a': a}
 
 	sim = Simulation()
-	with pytest.raises(AttributeError, match="contains the folowing duplicate value"):
+	with pytest.raises(AttributeError, match="contains the following duplicate value"):
 		sim.validate_model(Model())
 
 

@@ -62,6 +62,10 @@ from pathlib import Path
 from copy import copy
 import logging
 import inspect
+import functools
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
+import json
 import tqdm
 import numpy as np
 import networkx as nx
@@ -71,6 +75,53 @@ import pandas as pd
 
 class SimulationError(Exception):
     '''Exception raised for errors in the Simulation class.'''
+
+
+@dataclass(frozen=True)
+class ConstantNode:
+    '''Sentinel node representing a constant value source in the graph.
+    
+    These nodes are added to the graph to represent constant connections
+    but are filtered out during execution-order computation.
+    '''
+    name: str
+    value: Any
+
+
+@runtime_checkable
+class SimPlECModel(Protocol):
+    name: str
+    delta_t: int | None
+    inputs: list[str]
+    outputs: list[str]
+
+    def step(self, time: pd.Timestamp, **kwargs) -> dict[str, Any]:
+        ...
+
+
+def capture_params(cls):
+    """Optional decorator to capture __init__ parameters for introspection.
+
+    After decoration, instances will have `_init_params: dict` containing
+    all arguments passed to __init__ (excluding `self`).
+
+    Non-serializable values are stored as-is in `_init_params` and converted
+    to string representations in `get_topology()`.
+    """
+    original_init = cls.__init__
+    sig = inspect.signature(original_init)
+
+    @functools.wraps(original_init)
+    def new_init(self, *args, **kwargs):
+        bound = sig.bind(self, *args, **kwargs)
+        bound.apply_defaults()
+        params = dict(bound.arguments)
+        params.pop('self', None)
+        original_init(self, *args, **kwargs)
+        self._init_params = params
+
+    cls.__init__ = new_init
+    return cls
 
 
 class Simulation():
@@ -89,16 +140,16 @@ class Simulation():
         Parameter
         ----------
         logger_name : str or None, log some information about the simulation
-            progress if a name is provided (loging needs to be configured, see
+            progress if a name is provided (logging needs to be configured, see
             Python documentation standard library logging)
         time_resolution : str, Time resolution / unit of the models.delta_t,
             default: 'sec', (keyword strings according to pandas.Timedelta)
         multiinput_symbol : str, suffix for model input names (default: '_'),
             that accept multiple inputs. Input values ending with this character
-            will be wrapt in a list.
+            will be wrapped in a list.
         multiinput_dict_symbol : str, suffix for model input names (default: '_dict'),
             that accept multiple inputs. Input values ending with this character
-            will be wrapt in a dict with the output model (the sender of that input) name as key.
+            will be wrapped in a dict with the output model (the sender of that input) name as key.
         multioutput_dict_symbol : str, suffix for model output names (default: '_dict'),
             that return multiple outputs. Output values ending with this character
             need to return a dict with the input model (the recipient of that output) name as key.
@@ -119,7 +170,7 @@ class Simulation():
 
         # create execution graph (the graph is needed to calculate the model
         # execution order based on the connections between the models)
-        self.graph = nx.DiGraph()
+        self.graph = nx.MultiDiGraph()
 
         # setup the data logging capabilities
         self.model_watch_attributes = {}
@@ -147,7 +198,7 @@ class Simulation():
         # stepped in the first timestep
         self._model_next_exec_time = {}
 
-        # triggers_model answers the question 'which models are triggert by a
+        # triggers_model answers the question 'which models are triggered by a
         # certain model output (attr_out)?'
         # structure: {model: {'attr_out': [modeltotrigger1, modeltotrigger2]}}
         # It gets filled in 'connect', model not in dict, if model triggers no
@@ -159,7 +210,7 @@ class Simulation():
         self._df_multiindex: pd.MultiIndex
         self.array: np.ndarray
 
-        self.log.info('Initialized Simulation sucessfully')
+        self.log.info('Initialized Simulation successfully')
 
     def add_model(self, model, watch_values=None, watch_heavy=None):
         '''
@@ -181,12 +232,12 @@ class Simulation():
                 return {'value_out': value_out}
         """
 
-        watch_values : adds a models input or output to the reccorded values
+        watch_values : adds a models input or output to the recorded values
             (pandas.DataFrame). Access after simulation with: sim.df. Only watch
             numeric values that can safely be cast into a pandas DataFrame!
-        watch_heavy : adds a models input or output to the reccorded data (dict).
+        watch_heavy : adds a models input or output to the recorded data (dict).
             Access values after simulation with: sim.data. Anything can be
-            reccorded but performance might be limited. Only suggested for
+            recorded but performance might be limited. Only suggested for
             debugging purposes!
         '''
 
@@ -213,8 +264,8 @@ class Simulation():
         # Add connection and event based attributes
         self._model_input_map[model.name] = {}
         # initialize _model_timedelta_t, for event discrete models: delta_t = None
-        # therefore _model_timedelta_t = NaT which allways compares False
-        # (Nat >= time), therefore models dont get executed when _model_timedelta_t = NaT
+        # therefore _model_timedelta_t = NaT which always compares False
+        # (Nat >= time), therefore models do not get executed when _model_timedelta_t = NaT
         self._model_timedelta_t[model.name] = pd.Timedelta(
             value = model.delta_t,
             unit = self.time_resolution)    # type: ignore
@@ -240,7 +291,7 @@ class Simulation():
                 '(if the model is event based, set delta_t=None)')
         if not hasattr(model, 'inputs'):
             raise AttributeError(
-                f'Model \'{model.name}\' has no atribute \'inputs\', which is ' +
+                f'Model \'{model.name}\' has no attribute \'inputs\', which is ' +
                 'required for the simulation')
         if not isinstance(model.inputs, list):
             raise AttributeError(
@@ -248,7 +299,7 @@ class Simulation():
                 'strings for the simulation to work')
         if not hasattr(model, 'outputs'):
             raise AttributeError(
-                f'Model \'{model.name}\' has no atribute \'outputs\', which is ' +
+                f'Model \'{model.name}\' has no attribute \'outputs\', which is ' +
                 'required for the simulation')
         if not isinstance(model.outputs, list):
             raise AttributeError(
@@ -265,8 +316,12 @@ class Simulation():
         duplicate_input_outputs = list(set(model.inputs) & set(model.outputs))
         if duplicate_input_outputs:
             raise AttributeError(
-                f'Model \'{model.name}\' contains the folowing duplicate value(s) ' +
+                f'Model \'{model.name}\' contains the following duplicate value(s) ' +
                 f'in inputs and outputs: {duplicate_input_outputs}')
+        if not isinstance(model, SimPlECModel):
+            raise AttributeError(
+                f"Model of type '{type(model)}' does not satisfy SimPlECModel " +
+                'protocol requirements (name, delta_t, inputs, outputs, step).')
 
         # parameters of the step function
         step_function_params = inspect.signature(model.step).parameters
@@ -286,18 +341,18 @@ class Simulation():
                 "'model.inputs' can be found in step function arguments " +
                 "(make sure all inputs are accepted as keyword arguments, " +
                 "including variable length kwargs)")
-
+        
     def add_watch_values_to_model(self, model, watch_values: list):
-        '''Adds provided inputs and/or outputs to the list of reccorded values.
+        '''Adds provided inputs and/or outputs to the list of recorded values.
         After complete simulation, the values can be found in sim.df
 
         Parameters
         ----------
-        model : model of which inuts and/or output will be reccorded
+        model : model of which inputs and/or output will be recorded
         watch_values : list of str, input and/or output attributes of the model
-            to be reccorded
+            to be recorded
         '''
-        self.models_in_sim(model)
+        self._models_in_sim(model)
         for watch_value in watch_values:
             # Add model to watched models dict if needed
             # (only add if watch values present!!)
@@ -331,21 +386,21 @@ class Simulation():
 
             if not input_or_output:
                 raise SimulationError(
-                    f'Non existant input or output {watch_value} of model ' +
+                    f'Non-existent input or output {watch_value} of model ' +
                     f'{model.name} cannot be watched')
 
     # TODO: Those two methods could be unified or made less redundant
     def add_heavy_watch_values_to_model(self, model, watch_heavy: list):
-        '''Adds provided inputs and/or outputs to the list of reccorded values.
+        '''Adds provided inputs and/or outputs to the list of recorded values.
         After complete simulation, the values can be found in sim.data
 
         Parameters
         ----------
-        model : model of which inuts and/or output will be reccorded
+        model : model of which inputs and/or output will be recorded
         watch_heavy : list of str, input and/or output attributes of the model
-            to be reccorded
+            to be recorded
         '''
-        self.models_in_sim(model)
+        self._models_in_sim(model)
         for watch_value in watch_heavy:
             # Add model to watched models dict if needed
             # (only add if watch values present!!)
@@ -378,19 +433,152 @@ class Simulation():
                     watch_value)
                 self.data[(model.name, 'outputs', watch_value)] = {}
                 input_or_output = True
-
-
-
+                
             if not input_or_output:
                 raise SimulationError(
-                    f'Non existant input or output {watch_value} of model ' +
+                    f'Non-existent input or output {watch_value} of model ' +
                     f'{model.name} cannot be watched')
 
 
     def set_model_first_exec_time(self, model, first_exec_time: pd.Timestamp):
         """Sets the first execution time of a model"""
-        self.models_in_sim(model)
+        self._models_in_sim(model)
         self._model_next_exec_time[model.name] = first_exec_time
+
+    @staticmethod
+    def _to_json_safe(value):
+        """Return a JSON-serializable representation of value."""
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        if isinstance(value, list):
+            return [Simulation._to_json_safe(v) for v in value]
+        if isinstance(value, dict):
+            return {str(k): Simulation._to_json_safe(v) for k, v in value.items()}
+        try:
+            json.dumps(value)
+            return value
+        except (TypeError, OverflowError):
+            if isinstance(value, pd.Series):
+                return f'<pd.Series len={len(value)}>'
+            if isinstance(value, pd.DataFrame):
+                return f'<pd.DataFrame shape={value.shape}>'
+            if isinstance(value, np.ndarray):
+                return f'<np.ndarray shape={value.shape}>'
+            return repr(value)
+
+    @staticmethod
+    def _filtered_docstring(model):
+        doc = inspect.getdoc(type(model))
+        if not doc:
+            return ''
+        if doc.startswith('Initialize self. See help(type(self)) for accurate signature.'):
+            return ''
+        return doc
+
+    def get_model(self, name: str):
+        """Get a model by name from graph nodes."""
+        for node in self.graph.nodes:
+            if isinstance(node, ConstantNode):
+                continue
+            if getattr(node, 'name', None) == name:
+                return node
+        raise SimulationError(f"Model '{name}' not found in simulation graph")
+
+    def get_execution_order(self):
+        """Return execution order without running simulation."""
+        return self._compute_execution_order_from_graph(self.graph)
+
+    def get_topology(self) -> dict:
+        """Return JSON-serializable topology information for models and connections."""
+        models = []
+        for node in self.graph.nodes:
+            if isinstance(node, ConstantNode):
+                continue
+            models.append({
+                'name': node.name,
+                'class': type(node).__name__,
+                'module': type(node).__module__,
+                'inputs': list(node.inputs),
+                'outputs': list(node.outputs),
+                'delta_t': node.delta_t,
+                'docstring': self._filtered_docstring(node),
+                'params': (self._to_json_safe(getattr(node, '_init_params'))
+                           if hasattr(node, '_init_params') else None),
+            })
+
+        connections = []
+        for u, v, _, d in self.graph.edges(data=True, keys=True):
+            conn_type = d.get('connection_type', 'data')
+
+            connections.append({
+                'source': u.name,
+                'target': v.name,
+                'attr_out': d.get('attr_out', ''),
+                'attr_in': d.get('attr_in', ''),
+                'time_shifted': bool(d.get('time_shifted', False)),
+                'connection_type': conn_type,
+                'constant_value': \
+                    self._to_json_safe(u.value) if conn_type == 'constant' else None,
+            })
+
+        return {
+            'models': models,
+            'connections': connections,
+        }
+
+    def _validate_connection(self, model1, model2, attr_out, attr_in):
+        if attr_out not in model1.outputs:
+            raise SimulationError(
+                f'Error when connecting {model1.name} to {model2.name}: ' +
+                f'\'{attr_out}\' not an output of model ' +
+                f'\'{model1.name}\'')
+
+        if attr_in not in model2.inputs:
+            raise SimulationError(
+                f'Error when connecting {model1.name} to {model2.name}: ' +
+                f'\'{attr_in}\' not an input of model ' +
+                f'\'{model2.name}\'')
+
+    def _register_connection(self, model2, attr_in, model1_name, attr_out):
+        if (attr_in.endswith(self.multiinput_symbol) or
+            attr_in.endswith(self.multiinput_dict_symbol)):
+            if attr_in in self._model_input_map[model2.name]:
+                if (model1_name, attr_out) in self._model_input_map[model2.name][attr_in]:
+                    raise SimulationError(
+                        "Duplicate connection detected: " +
+                        f"'{model1_name}', '{attr_out}' to " +
+                        f"'{model2.name}', '{attr_in}'")
+
+                self._model_input_map[model2.name][attr_in].append((model1_name, attr_out))
+            else:
+                self._model_input_map[model2.name][attr_in] = [(model1_name, attr_out)]
+        elif attr_in in self._model_input_map[model2.name]:
+            raise SimulationError(
+                "Trying to set multiple inputs for " +
+                f"'{model2.name}' '{attr_in}'")
+        else:
+            self._model_input_map[model2.name][attr_in] = (model1_name, attr_out)
+
+    def _init_time_shifted(self, model1, attr_out, init_values):
+        if not init_values or attr_out not in init_values:
+            raise ValueError(
+                'Time shifted connection requires init_value for ' +
+                f'\'{attr_out}\' e.g.: {{\'{attr_out}\': value}}')
+            # TODO: check if this sounds missleading: output attribute 
+            # provided but not seen in watch items 
+        self._outputs[model1.name][attr_out] = init_values.pop(attr_out)
+        # TODO: check for duplicate init_values if several model connetions 
+        # initillize the same outtput, the value is just overritten, 
+        # maybe this should be prevented by an error
+
+    def _register_trigger(self, model1, model2, attr_out):
+        if model1.name not in self._model_output_triggers_models:
+            self._model_output_triggers_models[model1.name] = {}
+
+        if attr_out not in self._model_output_triggers_models[model1.name]:
+            self._model_output_triggers_models[model1.name][attr_out] = []
+
+        self._model_output_triggers_models[model1.name][attr_out].append(model2)
 
     def connect(self, model1, model2, *connections, time_shifted=False,
                  init_values=None, triggers=None):
@@ -419,9 +607,9 @@ class Simulation():
         if triggers is None:
             triggers = []
 
-        self.models_in_sim(model1, model2)
+        self._models_in_sim(model1, model2)
 
-        for connection in connections:  # TODO: refactor!
+        for connection in connections:
             # convert to tuple, if str is passed (if input and output have the
             # same 'name', only a string can be passed)
             if isinstance(connection, str):
@@ -429,75 +617,26 @@ class Simulation():
 
             attribute_out, attribute_in = connection
 
-            # Check if model1 provides this output
-            if not attribute_out in model1.outputs:
-                raise SimulationError(
-                    f'Error when connecting {model1.name} to {model2.name}: ' +
-                    f'\'{attribute_out}\' not an output of model ' +
-                    f'\'{model1.name}\'')
-
-            # Check if model2 accepts this input
-            if not attribute_in in model2.inputs:
-                raise SimulationError(
-                    f'Error when connecting {model1.name} to {model2.name}: ' +
-                    f'\'{attribute_in}\' not an input of model ' +
-                    f'\'{model2.name}\'')
-
-            # fill self._model_input_map[model2.name]
-            if (attribute_in.endswith(self.multiinput_symbol) or
-                attribute_in.endswith(self.multiinput_dict_symbol)):
-                if attribute_in in self._model_input_map[model2.name]:
-                    if (model1.name, attribute_out) in \
-                        self._model_input_map[model2.name][attribute_in]:
-
-                        raise SimulationError("Duplicate connection detected: "+\
-                            f"'{model1.name}', '{attribute_out}' to" +\
-                            f" '{model2.name}', '{attribute_in}'")
-
-                    self._model_input_map[model2.name][attribute_in].append((model1.name,
-                        attribute_out))
-                else:
-                    self._model_input_map[model2.name][attribute_in] = \
-                        [(model1.name, attribute_out)]
-                    # same connection!! raise!
-            elif attribute_in in self._model_input_map[model2.name]:
-                raise SimulationError("Trying to set multiple inputs for " + \
-                    f"'{model2.name}' '{attribute_in}'")
-            else:
-                self._model_input_map[model2.name][attribute_in] = (model1.name, attribute_out)
+            self._validate_connection(model1, model2, attribute_out, attribute_in)
+            self._register_connection(model2, attribute_in, model1.name, attribute_out)
 
             # initialize time shifted connection (start value)
             if time_shifted:
-                if not init_values or not attribute_out in init_values:
-                    raise ValueError(
-                        'Time shifted connection requires init_value for ' +
-                        f'\'{attribute_out}\' e.g.: {{\'{attribute_out}\': ' +
-                        'value}}')
-                # TODO: check if this sounds missleading: output attribute
-                # provided but not seen in watch items
-                self._outputs[model1.name][attribute_out] = (
-                    init_values.pop(attribute_out))
-                # TODO Check for duplicate init value if several models
-                # ininitlaize connections to the same output, the value is just
-                # overridden. Solution: raise Error if the value is different!
+                self._init_time_shifted(model1, attribute_out, init_values)
 
             # Add triggering attributes (model1 triggers execution of model2)
             if attribute_out in triggers:
                 triggers.remove(attribute_out)
-                if not model1.name in self._model_output_triggers_models:
-                    # create empty dict
-                    self._model_output_triggers_models[model1.name] = {}
-                if (not attribute_out
-                        in self._model_output_triggers_models[model1.name]):
-                    self._model_output_triggers_models[model1.name][
-                        attribute_out] = []
-
-                self._model_output_triggers_models[model1.name][
-                    attribute_out].append(model2)
+                self._register_trigger(model1, model2, attribute_out)
 
             # Add connection to graph
-            self.graph.add_edge(model1, model2, name=connection,
-                             time_shifted=time_shifted)
+            self.graph.add_edge(
+                model1,
+                model2,
+                attr_out=attribute_out,
+                attr_in=attribute_in,
+                time_shifted=time_shifted,
+                connection_type='data')
 
         if init_values:
             raise ValueError(
@@ -511,7 +650,7 @@ class Simulation():
     def connect_constant(self, constant, model, *attributes):
         """Connects constant value(s) to model input(s)"""
 
-        self.models_in_sim(model)
+        self._models_in_sim(model)
 
         for attr in attributes:
             # fill self._model_input_map[model.name]
@@ -529,17 +668,35 @@ class Simulation():
                 self._outputs[model.name+'_const'] = {}
             self._outputs[model.name+'_const'][attr] = constant
 
+            # Add constant sentinel to graph
+            const_node = ConstantNode(
+                name=f'{model.name}__const__{attr}',
+                value=constant)
+            self.graph.add_node(const_node)
+            self.graph.add_edge(
+                const_node,
+                model,
+                attr_out=attr,
+                attr_in=attr,
+                time_shifted=False,
+                connection_type='constant')
+
     def connect_nothing(self, model1, model2, time_shifted=False):
         '''
         This method ensures correct execution order when models interact
         independently (e.g. interfaces not handled via simplec).
         '''
-        self.models_in_sim(model1, model2)
+        self._models_in_sim(model1, model2)
         # Add connection to graph
-        self.graph.add_edge(model1, model2, name='nothing',
-                         time_shifted=time_shifted)
+        self.graph.add_edge(
+            model1,
+            model2,
+            attr_out='',
+            attr_in='',
+            time_shifted=time_shifted,
+            connection_type='execution_order')
 
-    def models_in_sim(self, *models):
+    def _models_in_sim(self, *models):
         '''Raises SimulationError if the models are not added to the
         simulation'''
         for model in models:
@@ -556,24 +713,35 @@ class Simulation():
         as edges'''
 
         # Prepare execution graph
-        edges_same_time = [(u, v) for u, v, d in graph.edges(data=True)
-                           if not d['time_shifted']]
-        edges_time_shifted = [(u, v) for u, v, d in graph.edges(data=True)
-                              if d['time_shifted']]
+        edges_same_time = set()
+        edges_time_shifted = set()
 
-        graph_same_time = graph.edge_subgraph(edges_same_time)
-        graph_time_shifted = graph.edge_subgraph(edges_time_shifted)
+        edge_iter = graph.edges(data=True, keys=True)
+        for u, v, _, d in edge_iter:
+            # Skip constant source edges (sentinel nodes don't execute)
+            if isinstance(u, ConstantNode) or d.get('connection_type') == 'constant':
+                continue
+            if d.get('time_shifted', False):
+                edges_time_shifted.add((u, v))
+            else:
+                edges_same_time.add((u, v))
+
+        # Build execution graphs with only model nodes (filter out ConstantNode)
+        model_nodes = [n for n in graph.nodes if not isinstance(n, ConstantNode)]
+        
+        graph_same_time = nx.DiGraph()
+        graph_same_time.add_nodes_from(model_nodes)
+        graph_same_time.add_edges_from(edges_same_time)
 
         # check if model connections are feasible (no cyclic connections)
         if not nx.is_directed_acyclic_graph(graph_same_time):
             raise SimulationError('There must be a cycle in the connections')
 
-        # Reverse time shifted edges, to ensue, that models containing input
-        # for another model in the next step are steped last.
+        # Reverse time shifted edges to ensure that models containing input
+        # for another model in the next step are stepped last.
         # The concept has to be double checked! (Is this needed?)
         graph_direction_check = graph_same_time.copy()
-        graph_direction_check.add_edges_from([(v, u) for u, v
-                                          in graph_time_shifted.edges])
+        graph_direction_check.add_edges_from([(v, u) for u, v in edges_time_shifted])
 
         if not nx.is_directed_acyclic_graph(graph_direction_check):
             raise SimulationError(
@@ -654,7 +822,7 @@ class Simulation():
             'next_exec_time',
             self._model_timedelta_t[model.name] + time)
 
-    def _set_next_exec_time_for_dependend_models(self, model, model_outputs,
+    def _set_next_exec_time_for_dependent_models(self, model, model_outputs,
                                                   time):
         if model.name in self._model_output_triggers_models:
             for trigger_attribute, trigger_models in (
@@ -669,7 +837,7 @@ class Simulation():
                         self._model_next_exec_time[trigger_model.name] = time
 
     def _log_data(self, model, model_inputs, model_outputs, time, t):
-        # logg data
+        # log data
         if model.name in self.model_watch_attributes:
             watch_attr_index = self.model_watch_attributes_index[model.name]
             if 'inputs' in watch_attr_index:
@@ -679,7 +847,7 @@ class Simulation():
                 for wo, i in watch_attr_index['outputs']:
                     self.array[t, i] = model_outputs.get(wo, np.nan)
 
-        # logg heavy data
+        # log heavy data
         if model.name in self.model_heavy_watch_attributes:
             if 'inputs' in self.model_heavy_watch_attributes[model.name]:
                 for wi in (self.model_heavy_watch_attributes[
@@ -722,7 +890,7 @@ class Simulation():
         output_data_path : str or None, path for the output pandas.DataFrame to be
             saved to. The extension specifies the filetype. Options are: '.pkl',
             '.csv', '.parquet'.
-        enable_progress_bar : bool show a progress bar while simulateing (disable for headless
+        enable_progress_bar : bool show a progress bar while simulating (disable for headless
         / background use)
         model_first_exec_time_default : pd.DateTime, Simulation-time to execute
             all models the first time (when using historic value, models get
@@ -769,7 +937,7 @@ class Simulation():
                     desc='Progress', unit='Steps', maxinterval=60,
                     disable=not self.enable_progress_bar):
                 for model in sorted_model_execution_list:
-                    # determine if the model needs to be steped in this time
+                    # determine if the model needs to be stepped in this time
                     # step
                     if time >= self._model_next_exec_time[model.name]:
 
@@ -783,10 +951,10 @@ class Simulation():
                         self._update_model_next_exec_time(
                             model, model_outputs, time)
 
-                        self._set_next_exec_time_for_dependend_models(
+                        self._set_next_exec_time_for_dependent_models(
                             model, model_outputs, time)
 
-                        # write model outputs to the ouput dict
+                        # write model outputs to the output dict
                         self._outputs[model.name].update(model_outputs)
 
                         self._log_data(
@@ -794,10 +962,10 @@ class Simulation():
 
         except Exception as e:
             self.log.error(
-                "Error occured at sim-time '%s' and during the " +
+                "Error occurred at sim-time '%s' and during the " +
                 "processing of model '%s'", time, model.name, exc_info=e)
             raise SimulationError(
-                f"Error occured at sim-time '{time}' and during the " +
+                f"Error occurred at sim-time '{time}' and during the " +
                 f"processing of model '{model.name}'") from e
         finally:
             # create DataFrame
@@ -826,14 +994,21 @@ class Simulation():
         pos = nx.spring_layout(self.graph)
 
         # get the model names for the edges
-        node_labels = {m: m.name for m in self.graph.nodes}
-        # get all edges to assign the color (safer that way)
-        edges = self.graph.edges(data=True)
-        edge_colors = ["green" if not d['time_shifted'] else "red"
-                       for u, v, d in edges]
+        node_labels = {m: getattr(m, 'name', str(m)) for m in self.graph.nodes}
+
+        if self.graph.is_multigraph():
+            edge_data = list(self.graph.edges(data=True, keys=True))
+            edges = [(u, v, k) for u, v, k, _ in edge_data]
+            edge_colors = ["green" if not d.get('time_shifted', False) else "red"
+                           for _, _, _, d in edge_data]
+        else:
+            edge_data = list(self.graph.edges(data=True))
+            edges = [(u, v) for u, v, _ in edge_data]
+            edge_colors = ["green" if not d.get('time_shifted', False) else "red"
+                           for _, _, d in edge_data]
 
         nx.draw_networkx(self.graph, pos,
-                         edgelist=edges, # type: ignore
+                         edgelist=edges, # type: ignore[arg-type]
                          edge_color=edge_colors,
                          connectionstyle='arc3, rad = 0.1',
                          labels=node_labels)
