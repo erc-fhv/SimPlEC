@@ -1,6 +1,6 @@
 """Tests for graph connection storage and execution-order behavior."""
 
-from simplec import Simulation
+from simplec import Simulation, ConstantNode
 
 
 class SourceModel:
@@ -11,7 +11,7 @@ class SourceModel:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time):
+    def step(self, time):  # noqa: ARG002
         return {'a': 1, 'b': 2}
 
 
@@ -23,7 +23,7 @@ class TargetModel:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time, x, y):
+    def step(self, time, x, y):  # noqa: ARG002
         return {'out': x + y}
 
 
@@ -35,7 +35,7 @@ class LoopModelA:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time, in_a):
+    def step(self, time, in_a):  # noqa: ARG002
         return {'out_a': in_a}
 
 
@@ -47,7 +47,7 @@ class LoopModelB:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time, in_b):
+    def step(self, time, in_b):  # noqa: ARG002
         return {'out_b': in_b}
 
 
@@ -102,3 +102,50 @@ def test_draw_exec_graph_does_not_crash(monkeypatch):
     monkeypatch.setattr('matplotlib.pyplot.show', lambda: None)
 
     sim.draw_exec_graph()
+
+
+def test_constant_source_represented_in_graph():
+    sim = Simulation()
+    tgt = TargetModel('tgt')
+
+    sim.add_model(tgt)
+    sim.connect_constant(10, tgt, 'x')
+    sim.connect_constant(20, tgt, 'y')
+
+    # Find constant sentinel nodes
+    const_nodes = [n for n in sim.graph.nodes if isinstance(n, ConstantNode)]
+    assert len(const_nodes) == 2
+
+    node_names = {n.name for n in const_nodes}
+    assert 'tgt__const__x' in node_names
+    assert 'tgt__const__y' in node_names
+
+    # Check edges exist
+    const_edges = []
+    for u, v, k, d in sim.graph.edges(data=True, keys=True):
+        if isinstance(u, ConstantNode):
+            const_edges.append((u.name, v.name, d['attr_in'], d['connection_type']))
+
+    assert len(const_edges) == 2
+    assert ('tgt__const__x', 'tgt', 'x', 'constant') in const_edges
+    assert ('tgt__const__y', 'tgt', 'y', 'constant') in const_edges
+
+
+def test_execution_order_filters_out_constant_nodes():
+    sim = Simulation()
+    a = LoopModelA('a')
+    b = LoopModelB('b')
+
+    sim.add_model(a)
+    sim.add_model(b)
+    
+    sim.connect_constant(5, a, 'in_a')
+    sim.connect(a, b, ('out_a', 'in_b'))
+
+    execution_order = sim._compute_execution_order_from_graph(sim.graph)
+
+    # Should only include model nodes, not constant sentinels
+    assert len(execution_order) == 2
+    assert all(not isinstance(n, ConstantNode) for n in execution_order)
+    assert a in execution_order
+    assert b in execution_order

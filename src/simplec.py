@@ -62,6 +62,8 @@ from pathlib import Path
 from copy import copy
 import logging
 import inspect
+from dataclasses import dataclass
+from typing import Any
 import tqdm
 import numpy as np
 import networkx as nx
@@ -71,6 +73,17 @@ import pandas as pd
 
 class SimulationError(Exception):
     '''Exception raised for errors in the Simulation class.'''
+
+
+@dataclass(frozen=True)
+class ConstantNode:
+    '''Sentinel node representing a constant value source in the graph.
+    
+    These nodes are added to the graph to represent constant connections
+    but are filtered out during execution-order computation.
+    '''
+    name: str
+    value: Any
 
 
 class Simulation():
@@ -534,6 +547,19 @@ class Simulation():
                 self._outputs[model.name+'_const'] = {}
             self._outputs[model.name+'_const'][attr] = constant
 
+            # Add constant sentinel to graph
+            const_node = ConstantNode(
+                name=f'{model.name}__const__{attr}',
+                value=constant)
+            self.graph.add_node(const_node)
+            self.graph.add_edge(
+                const_node,
+                model,
+                attr_out=attr,
+                attr_in=attr,
+                time_shifted=False,
+                connection_type='constant')
+
     def connect_nothing(self, model1, model2, time_shifted=False):
         '''
         This method ensures correct execution order when models interact
@@ -571,15 +597,19 @@ class Simulation():
 
         edge_iter = graph.edges(data=True, keys=True)
         for u, v, _, d in edge_iter:
-            if d.get('connection_type') == 'constant':
+            # Skip constant source edges (sentinel nodes don't execute)
+            if isinstance(u, ConstantNode) or d.get('connection_type') == 'constant':
                 continue
             if d.get('time_shifted', False):
                 edges_time_shifted.add((u, v))
             else:
                 edges_same_time.add((u, v))
 
+        # Build execution graphs with only model nodes (filter out ConstantNode)
+        model_nodes = [n for n in graph.nodes if not isinstance(n, ConstantNode)]
+        
         graph_same_time = nx.DiGraph()
-        graph_same_time.add_nodes_from(graph.nodes)
+        graph_same_time.add_nodes_from(model_nodes)
         graph_same_time.add_edges_from(edges_same_time)
 
         # check if model connections are feasible (no cyclic connections)
