@@ -119,7 +119,7 @@ class Simulation():
 
         # create execution graph (the graph is needed to calculate the model
         # execution order based on the connections between the models)
-        self.graph = nx.DiGraph()
+        self.graph = nx.MultiDiGraph()
 
         # setup the data logging capabilities
         self.model_watch_attributes = {}
@@ -496,8 +496,13 @@ class Simulation():
                     attribute_out].append(model2)
 
             # Add connection to graph
-            self.graph.add_edge(model1, model2, name=connection,
-                             time_shifted=time_shifted)
+            self.graph.add_edge(
+                model1,
+                model2,
+                attr_out=attribute_out,
+                attr_in=attribute_in,
+                time_shifted=time_shifted,
+                connection_type='data')
 
         if init_values:
             raise ValueError(
@@ -536,8 +541,13 @@ class Simulation():
         '''
         self.models_in_sim(model1, model2)
         # Add connection to graph
-        self.graph.add_edge(model1, model2, name='nothing',
-                         time_shifted=time_shifted)
+        self.graph.add_edge(
+            model1,
+            model2,
+            attr_out='',
+            attr_in='',
+            time_shifted=time_shifted,
+            connection_type='execution_order')
 
     def models_in_sim(self, *models):
         '''Raises SimulationError if the models are not added to the
@@ -556,13 +566,21 @@ class Simulation():
         as edges'''
 
         # Prepare execution graph
-        edges_same_time = [(u, v) for u, v, d in graph.edges(data=True)
-                           if not d['time_shifted']]
-        edges_time_shifted = [(u, v) for u, v, d in graph.edges(data=True)
-                              if d['time_shifted']]
+        edges_same_time = set()
+        edges_time_shifted = set()
 
-        graph_same_time = graph.edge_subgraph(edges_same_time)
-        graph_time_shifted = graph.edge_subgraph(edges_time_shifted)
+        edge_iter = graph.edges(data=True, keys=True)
+        for u, v, _, d in edge_iter:
+            if d.get('connection_type') == 'constant':
+                continue
+            if d.get('time_shifted', False):
+                edges_time_shifted.add((u, v))
+            else:
+                edges_same_time.add((u, v))
+
+        graph_same_time = nx.DiGraph()
+        graph_same_time.add_nodes_from(graph.nodes)
+        graph_same_time.add_edges_from(edges_same_time)
 
         # check if model connections are feasible (no cyclic connections)
         if not nx.is_directed_acyclic_graph(graph_same_time):
@@ -572,8 +590,7 @@ class Simulation():
         # for another model in the next step are steped last.
         # The concept has to be double checked! (Is this needed?)
         graph_direction_check = graph_same_time.copy()
-        graph_direction_check.add_edges_from([(v, u) for u, v
-                                          in graph_time_shifted.edges])
+        graph_direction_check.add_edges_from([(v, u) for u, v in edges_time_shifted])
 
         if not nx.is_directed_acyclic_graph(graph_direction_check):
             raise SimulationError(
@@ -826,14 +843,21 @@ class Simulation():
         pos = nx.spring_layout(self.graph)
 
         # get the model names for the edges
-        node_labels = {m: m.name for m in self.graph.nodes}
-        # get all edges to assign the color (safer that way)
-        edges = self.graph.edges(data=True)
-        edge_colors = ["green" if not d['time_shifted'] else "red"
-                       for u, v, d in edges]
+        node_labels = {m: getattr(m, 'name', str(m)) for m in self.graph.nodes}
+
+        if self.graph.is_multigraph():
+            edge_data = list(self.graph.edges(data=True, keys=True))
+            edges = [(u, v, k) for u, v, k, _ in edge_data]
+            edge_colors = ["green" if not d.get('time_shifted', False) else "red"
+                           for _, _, _, d in edge_data]
+        else:
+            edge_data = list(self.graph.edges(data=True))
+            edges = [(u, v) for u, v, _ in edge_data]
+            edge_colors = ["green" if not d.get('time_shifted', False) else "red"
+                           for _, _, d in edge_data]
 
         nx.draw_networkx(self.graph, pos,
-                         edgelist=edges, # type: ignore
+                         edgelist=edges, # type: ignore[arg-type]
                          edge_color=edge_colors,
                          connectionstyle='arc3, rad = 0.1',
                          labels=node_labels)
