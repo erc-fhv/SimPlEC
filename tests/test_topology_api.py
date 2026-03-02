@@ -17,7 +17,7 @@ class Producer:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time):  # noqa: ARG002
+    def step(self, time):  # pylint: disable=unused-argument
         return {'out': 1}
 
 
@@ -31,7 +31,7 @@ class Consumer:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time, in_data, in_const):  # noqa: ARG002
+    def step(self, time, in_data, in_const):  # pylint: disable=unused-argument
         return {'out2': in_data + in_const}
 
 
@@ -48,7 +48,7 @@ class ParamModel:
         self.alpha = alpha
         self.profile = profile
 
-    def step(self, time):  # noqa: ARG002
+    def step(self, time):  # pylint: disable=unused-argument
         return {'x': self.alpha}
 
 
@@ -60,7 +60,7 @@ class PlainModel:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time):  # noqa: ARG002
+    def step(self, time):  # pylint: disable=unused-argument
         return {'x': 0}
 
 
@@ -147,7 +147,7 @@ def test_get_topology_filters_default_object_docstring():
         def __init__(self, name):
             self.name = name
 
-        def step(self, time):  # noqa: ARG002
+        def step(self, time):  # pylint: disable=unused-argument
             return {'out': 0}
 
     sim = simplec.Simulation()
@@ -163,7 +163,9 @@ def test_capture_params_decorator_captures_defaults_and_values():
     profile = np.array([1, 2])
     model = ParamModel('m', profile=profile)
 
-    assert hasattr(model, '_init_params')
-    assert model._init_params['name'] == 'm'
-    assert model._init_params['alpha'] == 1.0
-    assert model._init_params['profile'] is profile
+    # Decorator adds attribute dynamically; static analyzers cannot infer it.
+    # pylint: disable=no-member
+    assert hasattr(model, 'init_params')
+    assert model.init_params['name'] == 'm'
+    assert model.init_params['alpha'] == 1.0
+    assert model.init_params['profile'] is profile

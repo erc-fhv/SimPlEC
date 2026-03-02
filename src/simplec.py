@@ -128,7 +128,6 @@ def capture_params(cls):
         params.pop('self', None)
         original_init(self, *args, **kwargs)
         setattr(self, 'init_params', params)
-        setattr(self, '_init_params', params)
 
     cls.__init__ = new_init
     return cls
@@ -492,8 +491,6 @@ class Simulation():
                 'docstring': self._filtered_docstring(node),
                 'params': (self._to_json_safe(getattr(node, 'init_params'))
                            if hasattr(node, 'init_params')
-                           else self._to_json_safe(getattr(node, '_init_params'))
-                           if hasattr(node, '_init_params')
                            else None),
             })
 

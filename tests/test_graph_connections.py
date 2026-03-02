@@ -11,7 +11,7 @@ class SourceModel:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time):  # noqa: ARG002
+    def step(self, time):  # pylint: disable=unused-argument
         return {'a': 1, 'b': 2}
 
 
@@ -23,7 +23,7 @@ class TargetModel:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time, x, y):  # noqa: ARG002
+    def step(self, time, x, y):  # pylint: disable=unused-argument
         return {'out': x + y}
 
 
@@ -35,7 +35,7 @@ class LoopModelA:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time, in_a):  # noqa: ARG002
+    def step(self, time, in_a):  # pylint: disable=unused-argument
         return {'out_a': in_a}
 
 
@@ -47,7 +47,7 @@ class LoopModelB:
     def __init__(self, name):
         self.name = name
 
-    def step(self, time, in_b):  # noqa: ARG002
+    def step(self, time, in_b):  # pylint: disable=unused-argument
         return {'out_b': in_b}
 
 
@@ -84,7 +84,7 @@ def test_compute_execution_order_still_works_with_multidigraph():
     sim.connect(model_a, model_b, ('out_a', 'in_b'))
     sim.connect(model_b, model_a, ('out_b', 'in_a'),
                 time_shifted=True, init_values={'out_b': 0})
-
+# pylint: disable=protected-access
     execution_order = sim._compute_execution_order_from_graph(sim.graph)
 
     assert execution_order == [model_a, model_b]
@@ -122,7 +122,7 @@ def test_constant_source_represented_in_graph():
 
     # Check edges exist
     const_edges = []
-    for u, v, k, d in sim.graph.edges(data=True, keys=True):
+    for u, v, _, d in sim.graph.edges(data=True, keys=True):
         if isinstance(u, ConstantNode):
             const_edges.append((u.name, v.name, d['attr_in'], d['connection_type']))
 
@@ -138,10 +138,11 @@ def test_execution_order_filters_out_constant_nodes():
 
     sim.add_model(a)
     sim.add_model(b)
-    
+
     sim.connect_constant(5, a, 'in_a')
     sim.connect(a, b, ('out_a', 'in_b'))
 
+    # pylint: disable=protected-access
     execution_order = sim._compute_execution_order_from_graph(sim.graph)
 
     # Should only include model nodes, not constant sentinels

@@ -1,6 +1,4 @@
-import numpy as np
 import pandas as pd
-import os
 from simplec import Simulation
 
 def test_multiinput_list():
@@ -12,7 +10,7 @@ def test_multiinput_list():
         def __init__(self, name):
             self.name = name
 
-        def step(self, time) -> dict:
+        def step(self, time) -> dict: # pylint: disable=unused-argument
             value_out = 20
             return {'value_out': value_out}
 
@@ -24,7 +22,7 @@ def test_multiinput_list():
         def __init__(self, name):
             self.name = name
 
-        def step(self, time, value_in_) -> dict:
+        def step(self, time, value_in_) -> dict: # pylint: disable=unused-argument
             value_out = sum(value_in_)
             return {'value_out': value_out} # value out will be the sum of values in
 
@@ -59,7 +57,7 @@ def test_multiinput_dict():
         def __init__(self, name):
             self.name = name
 
-        def step(self, time) -> dict:
+        def step(self, time) -> dict: # pylint: disable=unused-argument
             value_out = 20
             return {'value_out': value_out}
 
@@ -71,7 +69,7 @@ def test_multiinput_dict():
         def __init__(self, name):
             self.name = name
 
-        def step(self, time, value_in_dict) -> dict:
+        def step(self, time, value_in_dict) -> dict: # pylint: disable=unused-argument
             value_out = value_in_dict
             return {'value_out': value_out} # value out will be a dict
 
@@ -111,7 +109,7 @@ def test_multioutput_dict():
         def __init__(self, name):
             self.name = name
 
-        def step(self, time, value_in) -> dict:
+        def step(self, time, value_in) -> dict: # pylint: disable=unused-argument
             return {'value_out': value_in}
 
     class ExampleModelMultioutputDict():
@@ -123,7 +121,7 @@ def test_multioutput_dict():
             self.models = models
             self.name = name
 
-        def step(self, time) -> dict:
+        def step(self, time) -> dict: # pylint: disable=unused-argument
             value_out = {m: 20 for m in self.models}
             return {'value_out_dict': value_out} # value out will be a dict
 

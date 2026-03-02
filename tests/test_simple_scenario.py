@@ -15,7 +15,7 @@ class ExampleModel():
         self.name = name
         # init parameters here
 
-    def step(self, time, value_in) -> dict:
+    def step(self, time, value_in) -> dict: # pylint: disable=unused-argument
         # model logic here
         value_out = value_in + 1
         return {'value_out': value_out}
@@ -59,7 +59,7 @@ def test_watch_two_inputs_same_model():
             self.name = name
             self.value = value
 
-        def step(self, time) -> dict:
+        def step(self, time) -> dict: # pylint: disable=unused-argument
             return {'out': self.value}
 
     class SinkModel():
@@ -70,7 +70,7 @@ def test_watch_two_inputs_same_model():
         def __init__(self, name):
             self.name = name
 
-        def step(self, time, in1, in2) -> dict:
+        def step(self, time, in1, in2) -> dict: # pylint: disable=unused-argument
             return {'sum_out': in1 + in2}
 
     sim = Simulation()
