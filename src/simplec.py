@@ -80,7 +80,7 @@ class SimulationError(Exception):
 @dataclass(frozen=True)
 class ConstantNode:
     '''Sentinel node representing a constant value source in the graph.
-    
+
     These nodes are added to the graph to represent constant connections
     but are filtered out during execution-order computation.
     '''
@@ -90,22 +90,31 @@ class ConstantNode:
 
 @runtime_checkable
 class SimPlECModel(Protocol):
+    """Protocol describing the minimum model interface required by Simulation.
+
+    Attributes:
+        name: Unique model identifier.
+        delta_t: Execution interval in seconds, or ``None`` for event-based models.
+        inputs: Input attribute names consumed by ``step``.
+        outputs: Output attribute names returned by ``step``.
+    """
+
     name: str
     delta_t: int | None
     inputs: list[str]
     outputs: list[str]
 
     def step(self, time: pd.Timestamp, **kwargs) -> dict[str, Any]:
-        ...
+        """Compute one model step and return output values keyed by output name."""
 
 
 def capture_params(cls):
     """Optional decorator to capture __init__ parameters for introspection.
 
-    After decoration, instances will have `_init_params: dict` containing
+    After decoration, instances will have `init_params: dict` containing
     all arguments passed to __init__ (excluding `self`).
 
-    Non-serializable values are stored as-is in `_init_params` and converted
+    Non-serializable values are stored as-is in `init_params` and converted
     to string representations in `get_topology()`.
     """
     original_init = cls.__init__
@@ -118,7 +127,8 @@ def capture_params(cls):
         params = dict(bound.arguments)
         params.pop('self', None)
         original_init(self, *args, **kwargs)
-        self._init_params = params
+        setattr(self, 'init_params', params)
+        setattr(self, '_init_params', params)
 
     cls.__init__ = new_init
     return cls
@@ -341,7 +351,7 @@ class Simulation():
                 "'model.inputs' can be found in step function arguments " +
                 "(make sure all inputs are accepted as keyword arguments, " +
                 "including variable length kwargs)")
-        
+
     def add_watch_values_to_model(self, model, watch_values: list):
         '''Adds provided inputs and/or outputs to the list of recorded values.
         After complete simulation, the values can be found in sim.df
@@ -354,10 +364,7 @@ class Simulation():
         '''
         self._models_in_sim(model)
         for watch_value in watch_values:
-            # Add model to watched models dict if needed
-            # (only add if watch values present!!)
-            if not model.name in self.model_watch_attributes:
-                self.model_watch_attributes[model.name] = {}
+            model_watch_attrs = self.model_watch_attributes.setdefault(model.name, {})
 
             input_or_output = False
 
@@ -367,10 +374,7 @@ class Simulation():
                     raise SimulationError(
                         f'Multiinput {watch_value} of model {model.name} cannot ' +
                         'be watched, consider watching individual model outputs.')
-                if not 'inputs' in self.model_watch_attributes[model.name]:
-                    self.model_watch_attributes[model.name]['inputs'] = []
-                self.model_watch_attributes[model.name]['inputs'].append(
-                    watch_value)
+                model_watch_attrs.setdefault('inputs', []).append(watch_value)
                 input_or_output = True
 
             if watch_value in model.outputs:
@@ -378,10 +382,7 @@ class Simulation():
                     raise SimulationError(
                         f'Multioutput {watch_value} of model {model.name} cannot ' +
                         'be watched, consider watching individual model inputs.')
-                if not 'outputs' in self.model_watch_attributes[model.name]:
-                    self.model_watch_attributes[model.name]['outputs'] = []
-                self.model_watch_attributes[model.name]['outputs'].append(
-                    watch_value)
+                model_watch_attrs.setdefault('outputs', []).append(watch_value)
                 input_or_output = True
 
             if not input_or_output:
@@ -389,7 +390,7 @@ class Simulation():
                     f'Non-existent input or output {watch_value} of model ' +
                     f'{model.name} cannot be watched')
 
-    # TODO: Those two methods could be unified or made less redundant
+    # NOTE: These two methods could be unified to reduce redundancy.
     def add_heavy_watch_values_to_model(self, model, watch_heavy: list):
         '''Adds provided inputs and/or outputs to the list of recorded values.
         After complete simulation, the values can be found in sim.data
@@ -402,10 +403,7 @@ class Simulation():
         '''
         self._models_in_sim(model)
         for watch_value in watch_heavy:
-            # Add model to watched models dict if needed
-            # (only add if watch values present!!)
-            if not model.name in self.model_heavy_watch_attributes:
-                self.model_heavy_watch_attributes[model.name] = {}
+            heavy_watch_attrs = self.model_heavy_watch_attributes.setdefault(model.name, {})
 
             input_or_output = False
 
@@ -415,25 +413,15 @@ class Simulation():
                     raise SimulationError(
                         f'Multiinput {watch_value} of model {model.name} cannot ' +
                         'be watched, consider watching individual model outputs.')
-                if not 'inputs' in (
-                        self.model_heavy_watch_attributes[model.name]):
-                    self.model_heavy_watch_attributes[
-                        model.name]['inputs'] = []
-                self.model_heavy_watch_attributes[model.name]['inputs'].append(
-                    watch_value)
+                heavy_watch_attrs.setdefault('inputs', []).append(watch_value)
                 self.data[(model.name, 'inputs', watch_value)] = {}
                 input_or_output = True
 
             if watch_value in model.outputs:
-                if not 'outputs' in (
-                        self.model_heavy_watch_attributes[model.name]):
-                    self.model_heavy_watch_attributes[
-                        model.name]['outputs'] = []
-                self.model_heavy_watch_attributes[model.name]['outputs'].append(
-                    watch_value)
+                heavy_watch_attrs.setdefault('outputs', []).append(watch_value)
                 self.data[(model.name, 'outputs', watch_value)] = {}
                 input_or_output = True
-                
+
             if not input_or_output:
                 raise SimulationError(
                     f'Non-existent input or output {watch_value} of model ' +
@@ -502,8 +490,11 @@ class Simulation():
                 'outputs': list(node.outputs),
                 'delta_t': node.delta_t,
                 'docstring': self._filtered_docstring(node),
-                'params': (self._to_json_safe(getattr(node, '_init_params'))
-                           if hasattr(node, '_init_params') else None),
+                'params': (self._to_json_safe(getattr(node, 'init_params'))
+                           if hasattr(node, 'init_params')
+                           else self._to_json_safe(getattr(node, '_init_params'))
+                           if hasattr(node, '_init_params')
+                           else None),
             })
 
         connections = []
@@ -517,7 +508,7 @@ class Simulation():
                 'attr_in': d.get('attr_in', ''),
                 'time_shifted': bool(d.get('time_shifted', False)),
                 'connection_type': conn_type,
-                'constant_value': \
+                'constant_value':
                     self._to_json_safe(u.value) if conn_type == 'constant' else None,
             })
 
@@ -564,12 +555,11 @@ class Simulation():
             raise ValueError(
                 'Time shifted connection requires init_value for ' +
                 f'\'{attr_out}\' e.g.: {{\'{attr_out}\': value}}')
-            # TODO: check if this sounds missleading: output attribute 
-            # provided but not seen in watch items 
+            # NOTE: Message wording might be improved for clarity.
+            # It may mention watched attributes even though this check is about init values.
         self._outputs[model1.name][attr_out] = init_values.pop(attr_out)
-        # TODO: check for duplicate init_values if several model connetions 
-        # initillize the same outtput, the value is just overritten, 
-        # maybe this should be prevented by an error
+        # NOTE: Duplicate init values currently overwrite prior values.
+        # If multiple connections initialize the same output, this could be validated.
 
     def _register_trigger(self, model1, model2, attr_out):
         if model1.name not in self._model_output_triggers_models:
@@ -664,9 +654,10 @@ class Simulation():
 
             # add inputs to the output dict, this value will then not be
             # changed during simulation
-            if not model.name+'_const' in self._outputs:
-                self._outputs[model.name+'_const'] = {}
-            self._outputs[model.name+'_const'][attr] = constant
+            constant_name = model.name + '_const'
+            if constant_name not in self._outputs:
+                self._outputs[constant_name] = {}
+            self._outputs[constant_name][attr] = constant
 
             # Add constant sentinel to graph
             const_node = ConstantNode(
@@ -728,7 +719,7 @@ class Simulation():
 
         # Build execution graphs with only model nodes (filter out ConstantNode)
         model_nodes = [n for n in graph.nodes if not isinstance(n, ConstantNode)]
-        
+
         graph_same_time = nx.DiGraph()
         graph_same_time.add_nodes_from(model_nodes)
         graph_same_time.add_edges_from(edges_same_time)
@@ -760,35 +751,30 @@ class Simulation():
     def _get_model_inputs_from_outputs(self, model):
         '''Get inputs of the model from outputs of the simulation'''
         inputs = {}
-        for input_key, output_model_and_attr in (
-                self._model_input_map[model.name].items()):
+        for input_key, output_model_and_attr in self._model_input_map[model.name].items():
             if input_key.endswith(self.multiinput_symbol):  # multiinput
                 inputs[input_key] = []
                 for output_model_name, output_attr in output_model_and_attr:
                     inputs[input_key].append(
                         self._get_model_output_for_model(
                             output_model_name, output_attr, model.name
-                            ))
+                        )
+                    )
             elif input_key.endswith(self.multiinput_dict_symbol):  # multiinput_dict
                 inputs[input_key] = {}
                 for output_model_name, output_attr in output_model_and_attr:
-                    inputs[input_key][output_model_name] = \
-                        self._get_model_output_for_model(
-                            output_model_name, output_attr, model.name
-                            )
+                    inputs[input_key][output_model_name] = self._get_model_output_for_model(
+                        output_model_name, output_attr, model.name
+                    )
             else:
                 output_model_name, output_attr = output_model_and_attr
-                inputs[input_key] = \
-                    self._get_model_output_for_model(
-                            output_model_name, output_attr, model.name
-                            )
+                inputs[input_key] = self._get_model_output_for_model(
+                    output_model_name, output_attr, model.name
+                )
         return inputs
 
     def _initialize_watch_value_dataframe(self, datetimes):
-        # TODO: find nice solution for different time resolutions to avoid
-        # sparsity (might aswell not be a storage issue)
-        # TODO: refactor (exchanging df with array was a quickfix, therefore
-        # messy code)
+        # Different time resolutions can cause sparsity.
         if self.model_watch_attributes:
             ind = 0
             # make dataframe MultiIndex from watch attributes dict
@@ -807,9 +793,6 @@ class Simulation():
             self._df_multiindex = pd.MultiIndex.from_tuples(
                 dataframe_index_structure,
                 names=['model', 'i/o', 'attribute'])
-            # index=datetimes, columns=pd.MultiIndex.from_tuples(
-            # dataframe_index_structure,
-            # names=['model', 'i/o', 'attribute'])
             self.df = pd.DataFrame([])
 
             self.array = np.full((len(datetimes), ind), np.nan, np.float64)
@@ -897,15 +880,12 @@ class Simulation():
             executed at first time step).
         '''
 
-        # set per-run options (moved from __init__ to simulate)
+        # set per-run options as local variables
         if output_data_path is not None:
-            self.output_data_path = Path(output_data_path)
-            self.output_data_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path = Path(output_data_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
         else:
-            self.output_data_path = None
-
-        self.enable_progress_bar = enable_progress_bar
-        self.model_first_exec_time_default = model_first_exec_time_default
+            output_path = None
 
         self.log.info('Preparing simulation...')
         sorted_model_execution_list = (
@@ -915,7 +895,7 @@ class Simulation():
         # Do not overwrite values that were manually set prior to running
         for model in sorted_model_execution_list:
             if model.name not in self._model_next_exec_time:
-                self.set_model_first_exec_time(model, self.model_first_exec_time_default)
+                self.set_model_first_exec_time(model, model_first_exec_time_default)
 
         for model in sorted_model_execution_list:
             self.check_all_model_inputs_provided(
@@ -935,7 +915,7 @@ class Simulation():
             for t, time in tqdm.tqdm(
                     enumerate(datetimes), total=len(datetimes),
                     desc='Progress', unit='Steps', maxinterval=60,
-                    disable=not self.enable_progress_bar):
+                    disable=not enable_progress_bar):
                 for model in sorted_model_execution_list:
                     # determine if the model needs to be stepped in this time
                     # step
@@ -973,17 +953,17 @@ class Simulation():
                 self.df = pd.DataFrame(
                     self.array, index=datetimes, columns=self._df_multiindex)
             # Save DataFrame
-            if (self.model_watch_attributes and self.output_data_path
+            if (self.model_watch_attributes and output_path
                     and not self.df.empty):
-                self.log.info("Saving output to %s!", self.output_data_path)
-                if self.output_data_path.suffix == '.pkl':
-                    self.df.to_pickle(self.output_data_path)
-                elif self.output_data_path.suffix == '.csv':
-                    self.df.to_csv(self.output_data_path)
-                elif self.output_data_path.suffix == '.parquet':
-                    self.df.to_parquet(self.output_data_path)
+                self.log.info("Saving output to %s!", output_path)
+                if output_path.suffix == '.pkl':
+                    self.df.to_pickle(output_path)
+                elif output_path.suffix == '.csv':
+                    self.df.to_csv(output_path)
+                elif output_path.suffix == '.parquet':
+                    self.df.to_parquet(output_path)
                 else:
-                    self.df.to_pickle(self.output_data_path)
+                    self.df.to_pickle(output_path)
 
             self.log.info('Simulation completed successfully!')
 
@@ -1014,5 +994,3 @@ class Simulation():
                          labels=node_labels)
 
         plt.show()
-
-# todo: implement visualization again (deleted at commit a08d79432da22b1f35bc2167e8697fadcd88f8a5)
