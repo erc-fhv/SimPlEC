@@ -313,3 +313,8 @@ sim.simulate(times)
 - The Mosaik framework served as a very good template but proved to be to complex for most of our use cases
 - A simple method to store data in memory from the simulation API was missing. Preallocated storage makes the simulation very fast (profiling showed this to be the bottleneck)
 - We think that network sockets are overkill for most situations. Most interfaces can probably be implemented by python much easier, many protocols such as Sunspec or simulation tools such as Ida Ice actually provide python libraries and APIs.
+
+
+# Acknowledgments
+We gratefully acknowledge the financial support from the Austrian Research Promotion Agency FFG for the Hub4FlECs project (COIN FFG 898053), which provided funding for the development of the software provided. https://projekte.ffg.at/projekt/4597880
+
