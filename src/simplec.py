@@ -59,7 +59,7 @@ outputs of the simulation can then be retrieved by accessing sim.df
 '''
 
 from pathlib import Path
-from copy import copy
+from copy import copy, deepcopy
 import logging
 import inspect
 import functools
@@ -470,6 +470,16 @@ class Simulation():
             if getattr(node, 'name', None) == name:
                 return node
         raise SimulationError(f"Model '{name}' not found in simulation graph")
+
+    def fresh_copy(self) -> 'Simulation':
+        """Return an independent deep copy of this simulation.
+
+        All models and internal state are duplicated, so the copy can be
+        simulated without affecting the original.  Useful for running the
+        same scenario over multiple time periods with freshly initialised
+        models.
+        """
+        return deepcopy(self)
 
     def get_execution_order(self):
         """Return execution order without running simulation."""
